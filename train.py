@@ -22,6 +22,7 @@ from torch import optim
 from torch.autograd import Variable
 from torchvision import transforms, models
 from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler, Sampler, random_split
+
 from sklearn import datasets
 from sklearn.metrics import confusion_matrix, classification_report
 from sklearn.model_selection import ShuffleSplit, StratifiedShuffleSplit
@@ -42,7 +43,7 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
 ch.setFormatter(formatter)
 
-log_filename = 'log/Med_SelfTraining_500_useInit_balance.log'
+log_filename = 'log/Med_SelfTraining.log'
 log_dir = os.path.dirname(log_filename)
 
 if not os.path.exists(log_dir):
@@ -125,7 +126,7 @@ def LB(ext_feature, all_label, labeled_data):
     
     # #############################################################################
     # Learn with LabelSpreading
-    lp_model = LabelPropagation(gamma=0.25,max_iter=20)
+    lp_model = LabelPropagation(gamma=0.25, max_iter=20)
     lp_model.fit(ext_feature, y_train) ##
     predicted_labels = lp_model.transduction_[unlabeled_set]
     lb_out = lp_model.label_distributions_
@@ -149,7 +150,7 @@ def LB(ext_feature, all_label, labeled_data):
     # #############################################################################
     # Pick the top 10 most uncertain labels
    # uncertainty_index = np.argsort(pred_entropies)[-10:]
-    return lb_out,unlabeled_set
+    return lb_out, unlabeled_set
     # #############################################################################
     # Plot
     '''
@@ -178,42 +179,37 @@ def toarray_add(x, k):
     return k
 
 
-def test(data_loader_test, device, iteration):
-    model = torch.load(r"C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\pretrain_resnet18_"+str(iteration)+".pth")
-    model.to(device)
-    with torch.no_grad(): # when in test stage, no grad
+def test(model, test_loader, device, iteration):
+    with torch.no_grad():
         correct = 0
         total = 0
         testing_correct = 0
         #all=[]
-        pre_soft=[]
-        all_label=np.arange(0)
-        features=[]
+        pre_soft = []
+        all_label = np.arange(0)
+        features = []
+
         def hook(module, input, output): 
-            #print(output.clone().detach())
             x = output.clone().detach().cpu().numpy()
             x = x.tolist()
             for i in range(len(x)):
-                    features.append(x[i])
+                features.append(x[i])
         # features.append(output.clone().detach())
         
-        pbar = tqdm(data_loader_test)    
+        pbar = tqdm(test_loader)
         for imgs, labels, _ in pbar:
             
-            imgs = imgs.to(device)
-            labels = labels.to(device)
-            if len(labels)<=1:
-                logger.info('batch size is 64, but get 1, drop this only one data batch.')
-                break
+            imgs, labels = imgs.to(device), labels.to(device)
+
+            # need to rewrite feature extract for different models
+            handle = model.model.layer4[-1].register_forward_hook(hook)
+
             out = model(imgs)
-            handle = model.fc[0].register_forward_hook(hook)
-            y = model(imgs)
-            #print(len(features))
             handle.remove()
-            #features = np.array(features)
-            predict_softmax = F.softmax(out)#輸出softmax
+
+            predict_softmax = F.softmax(out)
             
-            _,pre = torch.max(out.data, 1) #輸出第一列的最大值跟序號代表預測類別 tensor([5.5664, 7.0837, 5.2682, 4.2807], device='cuda:0') tensor([3, 3, 1, 1], device='cuda:0')
+            _, pre = torch.max(out.data, 1)
             
             total += labels.size(0)
             correct += (pre == labels).sum().item()
@@ -221,8 +217,9 @@ def test(data_loader_test, device, iteration):
             
             all_label = np.append(all_label,labels)
             pre_soft = toarray_add(predict_softmax,pre_soft)
+
+            break
      
-    # logger.info('Accuracy: {}'.format(correct / total))
     if total == 0:
         total = 1
 
@@ -262,16 +259,20 @@ def fullyconect(epochs, data_loader_train, model, dataset, device, tag):
             optimizer.step()
             running_loss += loss.data
             running_correct += torch.sum(pred == y_train.data)
-            pbar.set_postfix(Loss=running_loss.item()/(cnt), correct=running_correct.item()/(cnt))
-        logger.info("[epoch {}/{}]Loss is:{:.4f}, Train Accuracy is:{:.4f}%".format(epoch, (epochs),
-                                                                                    running_loss.item()/len(dataset),
-                                                                                    100 * running_correct.item() / len(dataset),
-                                                                                    ))
+            pbar.set_postfix(Loss=running_loss.item()/(cnt), correct=running_correct.item() / (cnt))
+
+        logger.info(
+            "[epoch {}/{}]Loss is:{:.4f}, Train Accuracy is:{:.4f}%".format(
+                epoch, (epochs), running_loss.item()/len(dataset), 100 * running_correct.item() / len(dataset),
+                )
+        )
+
         epoch_acc = running_correct.double() / len(dataset)
-        all.append(running_loss/len(dataset))
+        all.append(running_loss / len(dataset))
+
         if epoch_acc > best_acc:
-                best_acc = epoch_acc
-                best_model_wts = copy.deepcopy(model.state_dict())
+            best_acc = epoch_acc
+            best_model_wts = copy.deepcopy(model.state_dict())
     
     plt.figure(figsize=(7,7),dpi=200)
     plt.plot(all,'b-o') #劃出loss曲線
@@ -321,10 +322,17 @@ def fullyconnecttest(data_loader_train, modelfc, device):
         # print(len(pre_soft))
         logger.info('pesudo label predict model Accuracy: {}'.format(correct / total))
 
-        return pre_soft,pre_hard
+        return pre_soft, pre_hard
 
 
 def train(cycle, n_epochs, model, data_loader_train, data_loader_val, optimizer, Criterion, save_dir):
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    img_dir = 'pic'
+    if not os.path.exists(img_dir):
+        os.makedirs(img_dir)
+
     since = time.time()
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
@@ -343,6 +351,7 @@ def train(cycle, n_epochs, model, data_loader_train, data_loader_val, optimizer,
         for i, data in enumerate(data_loader_train):
             image, label, _ = data
             zeta[label] += 1
+
     zeta = torch.tensor(zeta)
 
     for epoch in range(1,n_epochs+1):
@@ -365,20 +374,20 @@ def train(cycle, n_epochs, model, data_loader_train, data_loader_val, optimizer,
             omega = omega.cuda()
             z = torch.index_select(zeta, 0, label).cuda()
 
-           
             outputs = model(X_train)
-            _,pred = torch.max(outputs.data, 1)
+            _, pred = torch.max(outputs.data, 1)
             optimizer.zero_grad()
             loss = (Criterion(outputs, y_train) * omega * (1 / z)).sum()
             loss.backward()
             optimizer.step()
-            train_loss += loss.data
-            running_correct += torch.sum(pred == y_train.data)
+            train_loss += loss.item()
+            running_correct += torch.sum(pred == y_train.data).item()
 
             pbar_train.set_postfix(
-                Loss=train_loss.item() / cnt,
-                correct=running_correct.item() / cnt
+                Loss=train_loss / cnt,
+                correct=running_correct / cnt
             )
+            break
 
         val_loss = 0.0
         val_correct = 0
@@ -389,47 +398,49 @@ def train(cycle, n_epochs, model, data_loader_train, data_loader_val, optimizer,
             pbar_val.set_description(f'[epoch {epoch}/{n_epochs}][val]')
             X_val, y_val,_ = data
 
-            val_cnt+=len(X_val)
+            val_cnt += len(X_val)
             X_val, y_val = Variable(X_val), Variable(y_val)
             X_val = X_val.cuda()
             y_val = y_val.cuda()
             outputs = model(X_val)
             _, pred = torch.max(outputs.data, 1)
             loss = Criterion(outputs, y_val).mean()
-            val_loss+=loss.item()
-            val_correct += torch.sum(pred == y_val.data)
-            pbar_val.set_postfix(Loss=val_loss/val_cnt, correct=val_correct.item()/val_cnt)
+            val_loss += loss.item()
+            val_correct += torch.sum(pred == y_val.data).item()
+            pbar_val.set_postfix(Loss=val_loss / val_cnt, correct=val_correct / val_cnt)
+            break
         
         logger.info("[epoch {}/{}]Train Loss is:{:.8f},valid Loss is:{:.8f}, Train Accuracy is:{:.4f}%, valid Accuracy is:{:.4f}%"
                 .format(epoch,(n_epochs),
-                    train_loss/cnt,
-                    val_loss/val_cnt,
-                    100*running_correct/cnt,
-                    100*val_correct/val_cnt,
-                    ))
+                    train_loss / cnt,
+                    val_loss / val_cnt,
+                    100 * running_correct / cnt,
+                    100 * val_correct / val_cnt,
+                    )
+                )
 
         # epoch_acc = running_correct.double()/cnt
-        epoch_acc = val_correct/val_cnt
-        train_loss_curve.append(train_loss/cnt)
-        val_loss_curve.append(val_loss/val_cnt)
-        train_acc_curve.append(running_correct/cnt)
-        val_acc_curve.append(val_correct/val_cnt)
+        epoch_acc = val_correct / val_cnt
+        train_loss_curve.append(train_loss / cnt)
+        val_loss_curve.append(val_loss / val_cnt)
+        train_acc_curve.append(running_correct / cnt)
+        val_acc_curve.append(val_correct / val_cnt)
 
         if epoch_acc >= best_acc:
             best_epoch, best_acc = epoch, epoch_acc
             best_model_wts = copy.deepcopy(model.state_dict())
-            torch.save(best_model_wts, os.path.join(save_dir, 'best.pt'))
 
+        break
 
-    plt.figure(figsize=(7,7),dpi=200)
-    plt.plot(train_loss_curve,'r-o',label='train_curve')
+    plt.figure(figsize=(7, 7),dpi=200)
+    plt.plot(train_loss_curve, 'r-o', label='train_curve')
     plt.plot(val_loss_curve,'b-o',label='val_curve')
     plt.legend()
     plt.title("training Loss Curve")
     plt.xlabel("epochs")
-    plt.xticks(list(range(1,n_epochs+1)))
+    plt.xticks(list(range(1, n_epochs + 1)))
     plt.ylabel("Loss")
-    plt.savefig(os.path.join('pic', 'cycle_' + str(cycle) + '_loss.png'))
+    plt.savefig(os.path.join(img_dir, 'cycle_' + str(cycle) + '_loss.png'))
     plt.figure(figsize=(7,7),dpi=200)
     plt.plot(train_acc_curve,'r-o',label='train_curve')
     plt.plot(val_acc_curve,'b-o',label='val_curve')
@@ -438,19 +449,15 @@ def train(cycle, n_epochs, model, data_loader_train, data_loader_val, optimizer,
     plt.xlabel("epochs")
     plt.xticks(list(range(1, n_epochs + 1)))
     plt.ylabel("acc")
-    plt.savefig(os.path.join('pic', 'cycle_' + str(cycle) + '_acc.png'))
-    # np.savez(r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\np_history\c'+str(cycle)+'.npz', 
-    #         train_loss_curve = np.array(train_loss_curve),
-    #         val_loss_curve = np.array(val_loss_curve),
-    #         train_acc_curve = np.array(train_acc_curve),
-    #         val_acc_curve = np.array(val_acc_curve),)
-    
+    plt.savefig(os.path.join(img_dir, 'cycle_' + str(cycle) + '_acc.png'))
     time_since = time.time() - since
     logger.info('Training complete in {:.0f}m {:.0f}s'.format(time_since // 60, time_since % 60))
     logger.info('save model at epoch: {}, Best val Acc: {:4f}'.format(best_epoch,best_acc))
 
-    # Now we'll load in the best model weights and return it
+    torch.save(model, os.path.join(save_dir, 'last.pt'))
+
     model.load_state_dict(best_model_wts)
+    torch.save(model, os.path.join(save_dir, 'best.pt'))
 
     return model
     
@@ -461,8 +468,6 @@ def addpsudo(pre_soft, pre_hard, label_idx, unlabel_idx, dataset, all_true):
     
     # k = math.floor(0.99999999 * (10**(iteration))) / 10**(iteration)
     k = 0.9
-    # if iteration==1:
-    #     k=1.
     logger.info(f'select high confidience unlabeled data, threshold: {k}, pre_soft: {np.shape(pre_soft)}, unlabel_data: {len(unlabel_idx)}, ture_label: {len(all_true)}')
     remove_list = []
     for i in range(len(pre_soft)):
@@ -486,7 +491,7 @@ def addpsudo(pre_soft, pre_hard, label_idx, unlabel_idx, dataset, all_true):
     return label_idx, unlabel_idx, dataset, psudo_num
 
 
-def fine_tune_pretrain_model(model, train_loader, val_loader, test_loader, saved_dir, epochs=10):
+def fine_tune_pretrain_model(model, train_loader, val_loader, test_loader, saved_dir, model_name, epochs=10):
 
     # pre task predict model
     model = model.to(device)
@@ -503,43 +508,53 @@ def fine_tune_pretrain_model(model, train_loader, val_loader, test_loader, saved
         data_loader_val=val_loader,
         optimizer=optimizer,
         Criterion=Criterion,
-        save_dir=saved_dir
+        save_dir=os.path.join(saved_dir, model_name)
     )
-    
-    torch.save(trained_model, saved_dir)
-    # test task model
-    t1, t2, t3, t4, testacc = test(test_loader, device, 0) # 看預測準確率多少
-    logger.info(f'student model number : {0}, testing acc : {testacc}')
-    logger.info(r'fine-tune pre-train model finished, save at C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\pretrain_resnet18_0.pth')
-    # del model
 
-    #pre train FC
-    ## pre train FC
-    logger.info('train pesudo lobel predict model(FC)...')
+    t1, t2, t3, t4, testacc = test(
+        model=trained_model,
+        test_loader=test_loader, 
+        device=device,
+        iteration=0
+    )
+
+    logger.info(f'teacher model number : {0}, testing acc : {testacc}')
+    logger.info(f'fine-tune pre-train model finished, save parameter at {saved_dir}')
+
+    # pretrain train FC
+    logger.info('train pesudo label predict model(FC)...')
     modelfc = FC()
     modelfc.to(device)
     modelfc.train()
     logger.info('label data: predict label and get feature')
-    ext_feature_1,model_1,all_label_1,predict_softmax_1,t= test(labeled_loader, device,0)#對label data 500做特徵擷取
+    ext_feature_1, model_1, all_label_1, predict_softmax_1, t = test(labeled_loader, device, 0)# 對label data 500做特徵擷取
     logger.info('label FC data: predict label and get feature')
-    ext_feature_2,model_2,all_label_2,predict_softmax_2,t= test(fc_loader, device,0)#對fc data 500做特徵擷取
+    ext_feature_2, model_2, all_label_2, predict_softmax_2, t = test(fc_loader, device,0)# 對fc data 500做特徵擷取
     predict_softmax = predict_softmax_2
     ext_feature = np.concatenate([ext_feature_1,ext_feature_2])
     all_label = np.concatenate([all_label_1,all_label_2])
     logger.info(f'shape: ext_feature:{np.shape(ext_feature)}, all_label: {np.shape(all_label)}')
     
-    predict_softmax = np.array(predict_softmax)#轉成array
-    ext_feature = np.array(ext_feature)#轉成array讓LB做處理
+    predict_softmax = np.array(predict_softmax)# 轉成array
+    ext_feature = np.array(ext_feature)# 轉成array讓LB做處理
     all_label = np.array(all_label)
     
-    lb_out,idx =LB(ext_feature,all_label,labeled_indices)
-    feature = np.concatenate((lb_out[idx], predict_softmax),axis=1) #把兩個預測結果concat起來準備丟進去模型
+    lb_out, idx = LB(ext_feature, all_label, labeled_indices)
+    feature = np.concatenate((lb_out[idx], predict_softmax), axis=1) # 把兩個預測結果concat起來準備丟進去模型
     logger.info(f'feature: {np.shape(feature)}, all_label_2: {np.shape(all_label_2)}')
     feature_data = MyDataset(feature, all_label_2)
     fc_input_loader = DataLoader(dataset=feature_data,batch_size=batch_size)
+    
+    # train FC
     modelfc = fullyconect(epochs=100,data_loader_train=fc_input_loader, model=modelfc,dataset=feature_data, device=device, tag='FC')
     torch.save(modelfc,r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\FC20.pth')
     del modelfc
+
+
+def self_training_cycle():
+    
+
+    return model
 
 
 if __name__ == '__main__': 
@@ -612,7 +627,8 @@ if __name__ == '__main__':
         train_loader=train_loader, 
         val_loader=val_loader,
         test_loader=test_loader,
-        saved_dir='trained_model/resnet18',
+        saved_dir='trained_model/pretrain',
+        model_name='resnet_18',
         epochs=finetune_epochs
     )
 
@@ -620,95 +636,87 @@ if __name__ == '__main__':
     alltest = []
     patience = 0
     n_epochs = 30
-    true_labeled_data_len = len(labeled_indices)
+    # true_labeled_data_len = len(labeled_indices)
     
-# pipeline
-while(True):
-    iteration += 1
-    # check data len
-    logger.info(f'===cycle: {iteration}, labeled data: {len(labeled_indices)}, unlabeled data: {len(unlabeled_indices)}=======')
+    # pipeline
+    while(True):
+        iteration += 1
+        # check data len
+        logger.info(f'===cycle: {iteration}, labeled data: {len(labeled_indices)}, unlabeled data: {len(unlabeled_indices)}=======')
 
-    #建立新cycle的task model
-    logger.info('create and train new student model')
-    model = models.resnet18(pretrained=True)
-    # model.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=1, padding=3,bias=False)
-    num_ftrs = model.fc.in_features
-    model.fc = nn.Sequential(
-            nn.Linear(num_ftrs, 64),
-            nn.BatchNorm1d(64),
-            nn.Dropout(0.1),
-            nn.ReLU(),
-            nn.Linear(64, 7)
-            )
-    model = model.to(device)
-    Criterion = nn.CrossEntropyLoss(reduction='none')
-    Criterion = Criterion.cuda()
-    optimizer = torch.optim.Adam(model.parameters(),0.001)
-    # train task model
-    trained_model = train(iteration,n_epochs,model,labeled_loader,val_loader,optimizer,Criterion)
-    torch.save(trained_model, r"C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\pretrain_resnet18_"+str(iteration)+".pth")
-    
-    # test task model
-    # trained_model = torch.load(r"C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\pretrain_resnet18_"+str(iteration)+".pth")
-    t1,t2,t3,t4,testacc = test(test_loader, device,iteration)#看預測準確率多少
-    logger.info(f'student model number : {iteration}, testing acc : {testacc}')
-    alltest.append(testacc)
-    big=testacc
+        logger.info('create and train new student model')
+        model = gray_resnet18(num_classes=num_classes)
+        model = model.to(device)
 
-    # predict pseudo label and feature
-    logger.info(f'label data {len(labeled_indices)}: predict label and get feature')
-    ext_feature_1, _, all_label_1, predict_softmax_1, _= test(labeled_loader, device,iteration)#對已label資料做特徵擷取
-    logger.info(f'unlabel data {len(unlabeled_indices)}: predict label and get feature')
-    ext_feature_2, _, all_label_2, predict_softmax_2, _= test(unlabeled_loader, device,iteration) #對unlabel資料做預測以及取特徵
-    predict_softmax = predict_softmax_2
-    ext_feature = np.concatenate([ext_feature_1,ext_feature_2])
-    all_label = np.concatenate([all_label_1,all_label_2])
+        Criterion = nn.CrossEntropyLoss(reduction='none')
+        Criterion = Criterion.cuda()
+        optimizer = torch.optim.Adam(model.parameters(), 0.001)
 
-    # LP
-    predict_softmax = np.array(predict_softmax)#轉成array
-    ext_feature = np.array(ext_feature)#轉成array讓LB做處理
-    all_label = np.array(all_label)
-    lb_out,unlabel_idx =LB(ext_feature,all_label,labeled_indices)
-    lb_out = lb_out[unlabel_idx]
-    #  pseudo label prediction model
-    feature = np.concatenate((lb_out[:len(predict_softmax)], predict_softmax),axis=1) #把兩個預測結果concat起來準備丟進去模型
-    logger.info(f'concat feature: {np.shape(feature)}, all_label_2:{np.shape(all_label_2)}')
-    feature_data = MyDataset(feature, all_label)
-    fc_input_loader = DataLoader(dataset=feature_data,batch_size=64)
-    modelfc = torch.load(r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\FC20.pth')
-    logger.info('use model and LB predict label to predict pesudo label...')
-    pre_soft,pre_hard = fullyconnecttest(fc_input_loader,modelfc,device)
-    # print(pre_soft)
-    
-    #add pseudo-label data to labeled data
-    labeled_indices ,unlabeled_indices,train_dataset, new_data= addpsudo(pre_soft,pre_hard,labeled_indices,unlabeled_indices,train_dataset,all_label_2)
-    if new_data<=0:
-        if patience==0:
-            patience+=1
+        # train task model
+        trained_model = train(iteration,n_epochs,model,labeled_loader,val_loader,optimizer,Criterion)
+        torch.save(trained_model, r"C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\pretrain_resnet18_"+str(iteration)+".pth")
+        
+        # test task model
+        # trained_model = torch.load(r"C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\pretrain_resnet18_"+str(iteration)+".pth")
+        t1,t2,t3,t4,testacc = test(test_loader, device,iteration)#看預測準確率多少
+        logger.info(f'student model number : {iteration}, testing acc : {testacc}')
+        alltest.append(testacc)
+        big=testacc
+
+        # predict pseudo label and feature
+        logger.info(f'label data {len(labeled_indices)}: predict label and get feature')
+        ext_feature_1, _, all_label_1, predict_softmax_1, _= test(labeled_loader, device,iteration)#對已label資料做特徵擷取
+        logger.info(f'unlabel data {len(unlabeled_indices)}: predict label and get feature')
+        ext_feature_2, _, all_label_2, predict_softmax_2, _= test(unlabeled_loader, device,iteration) #對unlabel資料做預測以及取特徵
+        predict_softmax = predict_softmax_2
+        ext_feature = np.concatenate([ext_feature_1,ext_feature_2])
+        all_label = np.concatenate([all_label_1,all_label_2])
+
+        # LP
+        predict_softmax = np.array(predict_softmax)#轉成array
+        ext_feature = np.array(ext_feature)#轉成array讓LB做處理
+        all_label = np.array(all_label)
+        lb_out, unlabel_idx = LB(ext_feature, all_label, labeled_indices)
+        lb_out = lb_out[unlabel_idx]
+
+        #  pseudo label prediction model
+        feature = np.concatenate((lb_out[:len(predict_softmax)], predict_softmax),axis=1) #把兩個預測結果concat起來準備丟進去模型
+        logger.info(f'concat feature: {np.shape(feature)}, all_label_2:{np.shape(all_label_2)}')
+        feature_data = MyDataset(feature, all_label)
+        fc_input_loader = DataLoader(dataset=feature_data,batch_size=64)
+        modelfc = torch.load(r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\FC20.pth')
+        logger.info('use model and LB predict label to predict pesudo label...')
+        pre_soft,pre_hard = fullyconnecttest(fc_input_loader,modelfc,device)
+        
+        #add pseudo-label data to labeled data
+        labeled_indices ,unlabeled_indices,train_dataset, new_data= addpsudo(pre_soft,pre_hard,labeled_indices,unlabeled_indices,train_dataset,all_label_2)
+        if new_data<=0:
+            if patience==0:
+                patience+=1
+            else:
+                logger.info(f'self-training finished!')
+                logger.info(f'total iteration: {iteration}, final cycle acc: {testacc}, labeled: {len(labeled_indices)}, unlabeled: {len(unlabeled_indices)}')
+                break
         else:
-            logger.info(f'self-training finished!')
-            logger.info(f'total iteration: {iteration}, final cycle acc: {testacc}, labeled: {len(labeled_indices)}, unlabeled: {len(unlabeled_indices)}')
-            break
-    else:
-        patience=0
-    labeled_sampler = SubsetRandomSampler(labeled_indices)
-    unlabeled_sampler = SubsetRandomSampler(unlabeled_indices)
-    logger.info(f'label: {Counter( np.array(train_dataset.target)[labeled_indices])}')
-    logger.info(f'unlabel: {Counter( np.array(train_dataset.target)[unlabeled_indices])}')
-    # labeled_loader = dataloader(labeled_dataset,batch_size) #finetune好的模型
-    labeled_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, sampler=labeled_sampler)
-    # unlabeled_loader = dataloader(unlabeled_dataset,batch_size)
-    unlabeled_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, sampler=unlabeled_sampler)
-    save_object(train_dataset, r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\dataset_'+str(iteration))
-    np.savez(r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\dataset_indices_'+str(iteration)+'.npz',
-                labeled_indices=labeled_indices,
-                unlabeled_indices=unlabeled_indices)
-    del modelfc
+            patience=0
+        labeled_sampler = SubsetRandomSampler(labeled_indices)
+        unlabeled_sampler = SubsetRandomSampler(unlabeled_indices)
+        logger.info(f'label: {Counter( np.array(train_dataset.target)[labeled_indices])}')
+        logger.info(f'unlabel: {Counter( np.array(train_dataset.target)[unlabeled_indices])}')
+        # labeled_loader = dataloader(labeled_dataset,batch_size) #finetune好的模型
+        labeled_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, sampler=labeled_sampler)
+        # unlabeled_loader = dataloader(unlabeled_dataset,batch_size)
+        unlabeled_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, sampler=unlabeled_sampler)
+        save_object(train_dataset, r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\dataset_'+str(iteration))
+        np.savez(r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\ISIC2018_500\dataset_indices_'+str(iteration)+'.npz',
+                    labeled_indices=labeled_indices,
+                    unlabeled_indices=unlabeled_indices)
+        del modelfc
 
-plt.figure(figsize=(7,7),dpi=200)
-plt.plot(alltest,'b-o',label='test_curve')
-plt.title("test acc Curve")
-plt.xlabel("cycle")
-plt.xticks(list(range(1,iteration+1)))
-plt.ylabel("acc")
-plt.savefig(r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\picture\all_cycle_test_acc.png')
+    plt.figure(figsize=(7,7),dpi=200)
+    plt.plot(alltest,'b-o',label='test_curve')
+    plt.title("test acc Curve")
+    plt.xlabel("cycle")
+    plt.xticks(list(range(1,iteration+1)))
+    plt.ylabel("acc")
+    plt.savefig(r'C:\Users\Rayeh\Desktop\Med_self-training_Yuan\picture\all_cycle_test_acc.png')

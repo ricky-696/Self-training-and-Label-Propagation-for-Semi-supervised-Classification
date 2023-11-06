@@ -26,14 +26,13 @@ class gray_resnet18(nn.Module):
 
 class FC(nn.Module):
     def __init__(self):
-        super(FC,self).__init__()
-        #define three layers,
-        # fc stands for fully connected layer. conv is for convolution layer(nn.Con2d()
-        self.fc1=nn.Linear(14,10)
-        self.fc2 = nn.Linear(10,7)
+        super(FC, self).__init__()
+        
+        self.fc1 = nn.Linear(14, 10)
+        self.fc2 = nn.Linear(10, 7)
 
     def forward(self, x):
-        x=F.relu(self.fc1(x))
+        x = F.relu(self.fc1(x))
         x = self.fc2(x)
         
         return x
@@ -52,21 +51,6 @@ class Network(nn.Module):
         return out
 
 
-'''
-class Network(nn.Module):
-    
-    def __init__(self):
-        super(Network, self).__init__()
-        self.l1 = nn.Linear(20, 16)
-        self.relu = nn.ReLU()
-        self.l3 = nn.Linear(16, 10)
-        
-    def forward(self, x):
-        x = self.l1(x)
-        x = self.relu(x)
-        x = self.l3(x)
-        return F.log_softmax(x)
-'''
 class MNISTResNet(ResNet):
     def __init__(self):
         super(MNISTResNet, self).__init__(BasicBlock, [2, 2, 2, 2], num_classes=10) # Based on ResNet18
@@ -78,6 +62,7 @@ class MNISTResNet(ResNet):
 class Flatten(nn.Module):
     def __init__(self):
         super(Flatten,self).__init__()
+
     def forward(self,x):
         shape = torch.prod(torch.tensor(x.shape[1:])).item()
         return x.reshape(-1,shape)
