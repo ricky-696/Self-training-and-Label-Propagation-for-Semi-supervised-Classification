@@ -25,11 +25,11 @@ class gray_resnet18(nn.Module):
 
 
 class FC(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes):
         super(FC, self).__init__()
         
-        self.fc1 = nn.Linear(14, 10)
-        self.fc2 = nn.Linear(10, 7)
+        self.fc1 = nn.Linear(num_classes, 10)
+        self.fc2 = nn.Linear(10, int(num_classes / 2))
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
