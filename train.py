@@ -233,7 +233,6 @@ def train_FC(epochs, data_loader_train, model, dataset, device, save_dir):
             best_acc = epoch_acc
             best_model_wts = copy.deepcopy(model.state_dict())
 
-        break
     
     fig_path = os.path.join('pic', 'FC')
     if not os.path.exists(fig_path):
@@ -352,7 +351,6 @@ def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_cl
                 Loss=train_loss / cnt,
                 correct=running_correct / cnt
             )
-            break
 
         val_loss = 0.0
         val_correct = 0
@@ -373,7 +371,6 @@ def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_cl
             val_loss += loss.item()
             val_correct += torch.sum(pred == y_val.data).item()
             pbar_val.set_postfix(Loss=val_loss / val_cnt, correct=val_correct / val_cnt)
-            break
         
         logger.info("[epoch {}/{}]Train Loss is:{:.8f},valid Loss is:{:.8f}, Train Accuracy is:{:.4f}%, valid Accuracy is:{:.4f}%"
                 .format(epoch,(n_epochs),
@@ -395,7 +392,6 @@ def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_cl
             best_epoch, best_acc = epoch, epoch_acc
             best_model_wts = copy.deepcopy(model.state_dict())
 
-        break
 
     plt.figure(figsize=(7, 7),dpi=200)
     plt.plot(train_loss_curve, 'r-o', label='train_curve')
@@ -604,7 +600,7 @@ def main(train_loader, val_loader, unlabeled_loader, pretrain_model, save_model_
         os.makedirs(save_model_dir)
     
     logger.info('fin-tune pre-train model...')
-    logger.info(f'===cycle: {0}, labeled data: {len(labeled_data)}, unlabeled data: {len(unlabeled_data)}=======')
+    logger.info(f'===cycle: {0}, labeled data: {len(train_loader.dataset)}, unlabeled data: {len(unlabeled_loader.dataset)}=======')
     finetune_epochs = 10
     
     teacher_model, pseudo_label_model = fine_tune_pretrain_model(
@@ -621,7 +617,7 @@ def main(train_loader, val_loader, unlabeled_loader, pretrain_model, save_model_
     
     # Self Training pipeline
     for iteration in range(1, max_self_training_iteration + 1):
-        logger.info(f'===Self Training Cycle: {iteration}, Labeled data: {len(labeled_data)}, Unlabeled data: {len(unlabeled_data)}=======')
+        logger.info(f'===Self Training Cycle: {iteration}, labeled data: {len(train_loader.dataset)}, unlabeled data: {len(unlabeled_loader.dataset)}=======')
 
         student_model, train_loader, unlabeled_loader, student_acc = self_training_cycle(
             iteration=iteration, 
@@ -649,7 +645,7 @@ def main(train_loader, val_loader, unlabeled_loader, pretrain_model, save_model_
             teacher_model = student_model
 
     # plt self-training test curve
-    plt.figure(figsize=(7, 7),dpi=200)
+    plt.figure(figsize=(7, 7), dpi=200)
     plt.plot(student_test_acc, 'b-o', label='test_curve')
     plt.title("test acc Curve")
     plt.xlabel("cycle")
@@ -669,7 +665,6 @@ if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Start batch size: {batch_size}, device: {device}')
 
-
     if not os.path.exists('pic'):
         os.makedirs('pic')
 
@@ -678,7 +673,7 @@ if __name__ == '__main__':
         transforms.ToTensor(),
     ])
 
-    data_train = MNIST_omega(  
+    data_train = MNIST_omega(
         root='./mnist/',
         train=True,
         transform=transform,
@@ -700,8 +695,8 @@ if __name__ == '__main__':
     # train_data, val_data = data_train, data_train
 
     # real
-    train_data, val_data = random_split(data_train, [0.8, 0.2])
-    unlabeled_data = data_test
+    train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
+    val_data = data_test
 
     train_loader = torch.utils.data.DataLoader(
         dataset=train_data,

@@ -14,7 +14,7 @@ class MNIST_omega(Dataset):
             self.mnist, self.classes = self.debug_mnist(root, train, transform, download)
         else:
             self.mnist = datasets.MNIST(root, train=train, transform=transform, download=download)
-            self.classes = self.mnist.classes
+            self.classes = len(self.mnist.classes)
 
         self.omega = [1.] * len(self.mnist)
 
