@@ -64,10 +64,10 @@ class MNIST_omega(Dataset):
         return self.classes
 
 
-class Psuedo_label_data(Dataset):
-    def __init__(self,x ,y):
+class Concat_Psuedo_label_data(Dataset):
+    def __init__(self, x, y):
         self.data = torch.from_numpy(x).float()
-        self.label = torch.from_numpy(y).long()
+        self.label = y
 
     def __getitem__(self,index):
         return self.data[index],self.label[index]
@@ -75,6 +75,17 @@ class Psuedo_label_data(Dataset):
     def __len__(self):
         return len(self.data)
     
+
+class Psuedo_data(Dataset):
+    def __init__(self, data):
+        self.data = data
+
+    def __getitem__(self,index):
+        return self.data[index]
+    
+    def __len__(self):
+        return len(self.data)
+
 
 class SubsetSampler(Sampler):
     r"""Samples elements from a given list of indices, without replacement.

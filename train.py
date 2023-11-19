@@ -29,7 +29,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.semi_supervised import LabelPropagation
 
 from Model import FC, gray_resnet18
-from dataset import ISIC_Dataset, Psuedo_label_data, MNIST_omega
+from dataset import Psuedo_data, Concat_Psuedo_label_data, MNIST_omega
 
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
@@ -56,51 +56,6 @@ logging.getLogger('matplotlib.font_manager').disabled = True
 logger.addHandler(ch)
 logger.addHandler(fh)
 
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = False  
-    torch.backends.cudnn.deterministic = True
-    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
-    torch.use_deterministic_algorithms(True)
-
-
-def select_balance_data(dataset:ISIC_Dataset, train_idx, n_test=70):
-    labels = np.array(dataset.target)[train_idx]
-    classes = np.unique(labels)
-
-    ixs = []
-    for cl in classes:
-        ixs.append(np.random.choice(np.nonzero(labels==cl)[0], n_test,
-                replace=False))
-
-    # take same num of samples from all classes
-    # ix_train = np.concatenate([x[:n_train_per_class] for x in ixs])
-    # ix_test = np.concatenate([x[n_train_per_class:(n_train_per_class+n_test_per_class)] for x in ixs])
-    ix_unlabel = train_idx[ixs]
-    ix_label = train_idx[not ixs]
-
-    return ix_label, ix_unlabel
-
-
-def save_object(obj, filename):
-    try:
-        with open(f"{filename}.pickle", "wb") as f:
-            pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception as ex:
-        print("Error during pickling object (Possibly unsupported):", ex)
-
-
-def load_object(filename):
-    try:
-        with open(f"{filename}.pickle", "rb") as f:
-            return pickle.load(f)
-    except Exception as ex:
-        print("Error during unpickling object (Possibly unsupported):", ex)
-
 
 def Label_Propagation(ext_feature, all_label, num_labeled_samples):
     # make feature to 2d: (n_samples, n_features)
@@ -119,12 +74,8 @@ def Label_Propagation(ext_feature, all_label, num_labeled_samples):
     y_train[unlabeled_indices] = -1
     
     # Learn with LabelSpreading
-    lp_model = LabelPropagation(kernel='knn') # used rbf or knn
+    lp_model = LabelPropagation(kernel='rbf') # used rbf or knn
     lp_model.fit(ext_feature, y_train)
-    
-    # # softmax
-    # label_distributions_tensor = torch.from_numpy(lp_model.label_distributions_)
-    # label_distributions_softmax = F.softmax(label_distributions_tensor, dim=1).numpy()
 
     return lp_model.label_distributions_, unlabeled_indices
 
@@ -137,46 +88,37 @@ def tensor_to_list(x, k):
 
 
 def test(model, model_type, test_loader, device):
+    model.eval()
     with torch.no_grad():
         correct = 0
-        total = 0
-        pre_soft = []
-        gt_label = []
-        features = []
+        pre_soft, gt_label, features = [], [], []
 
         def hook(module, input, output): 
-            x = output.clone().detach().cpu().numpy()
-            x = x.tolist()
-            for i in range(len(x)):
-                features.append(x[i])
+            x = output.detach().cpu()
+            features.append(x)
         
+        # need to rewrite feature extract for different models
+        if model_type == 'resnet':
+            handle = model.model.layer4[-1].register_forward_hook(hook)
+            
         pbar = tqdm(test_loader)
         for imgs, labels, _ in pbar:
             
             imgs, labels = imgs.to(device), labels.to(device)
 
-            # need to rewrite feature extract for different models
-            if model_type == 'resnet':
-                handle = model.model.layer4[-1].register_forward_hook(hook)
-
             out = model(imgs)
-            handle.remove()
-
             predict_softmax = F.softmax(out, dim=1)
-            
+    
             _, pre = torch.max(out.data, 1)
             
-            total += labels.size(0)
             correct += (pre == labels).sum().item()
-            labels = labels.cpu().numpy()
             
-            gt_label = np.append(gt_label, labels)
-            pre_soft = tensor_to_list(predict_softmax, pre_soft)
-     
-    if total == 0:
-        total = 1
+            gt_label.append(labels.cpu())
+            pre_soft.append(predict_softmax.cpu())
+    
+    handle.remove()
 
-    return features, gt_label, pre_soft, correct / total
+    return torch.cat(features, dim=0), torch.cat(gt_label, dim=0), torch.cat(pre_soft, dim=0), correct / len(test_loader.dataset)
 
 
 def train_FC(epochs, data_loader_train, model, dataset, device, save_dir):
@@ -184,6 +126,7 @@ def train_FC(epochs, data_loader_train, model, dataset, device, save_dir):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     
+    model.train()
     model.to(device)
     model = model.float()
     cost = nn.CrossEntropyLoss()
@@ -261,6 +204,7 @@ def train_FC(epochs, data_loader_train, model, dataset, device, save_dir):
 def test_FC(data_loader, modelfc, device):
     
     modelfc.to(device)
+    modelfc.eval()
     
     with torch.no_grad():
         correct = 0
@@ -282,12 +226,12 @@ def test_FC(data_loader, modelfc, device):
             
             total += labels.size(0)
             correct += (pre == labels).sum().item()
-            pre_hard = tensor_to_list(pre, pre_hard)
-            pre_soft = tensor_to_list(predict_softmax, pre_soft)
+            pre_hard.append(pre.cpu())
+            pre_soft.append(predict_softmax.cpu())
             
         logger.info('pesudo label predict model Accuracy: {}'.format(correct / total))
 
-        return pre_soft, pre_hard
+        return torch.cat(pre_soft, dim=0), torch.cat(pre_hard, dim=0)
 
 
 def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_classes, optimizer, Criterion, save_dir):
@@ -298,6 +242,7 @@ def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_cl
     if not os.path.exists(img_dir):
         os.makedirs(img_dir)
 
+    model.train()
     since = time.time()
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
@@ -420,38 +365,49 @@ def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_cl
 
     return model, best_acc
     
-def add_pseudo(pre_soft, pre_hard, dataset_type, train_loader, unlabeled_loader, num_classes, threshold=0.9):
+def add_pseudo(pre_soft, pre_hard, dataset_type, train_data, unlabeled_loader, num_classes, threshold=0.9):
     
     # get the idx for unlabeled data
     unlabeled_sample_idx = list(unlabeled_loader.sampler)
-    del_idx = []
+    pseudo_data_list = []
+    unlabeled_data_list = []
+    
     if dataset_type == 'MNIST':
         for i in range(len(pre_soft)):
+            img, label, omega = unlabeled_loader.dataset[unlabeled_sample_idx[i]]
+            
             if max(pre_soft[i]) >= threshold:
-                # take data
-                del_idx.append(unlabeled_sample_idx[i])
-                img, _, omega = unlabeled_loader.dataset[unlabeled_sample_idx[i]]
-                
-                # change the sample's weight
                 omega = 1 - (max(pre_soft[i]) / np.log(num_classes))
+                pseudo_data_list.append((img, pre_hard[i], omega))
+            else:
+                unlabeled_data_list.append((img, label, omega))
                 
-                # put pseudo into train_loader
-                train_loader.dataset.mnist.append((img, pre_hard[i]))
-                train_loader.dataset.omega.append(omega)
-                
-        # ToDo: Find an efficient delete method.
-        for i in sorted(del_idx, reverse=True):
-            del unlabeled_loader.dataset.mnist[i]
-            del unlabeled_loader.dataset.omega[i]
-
-    return train_loader, unlabeled_loader
+        # create new data
+        pseudo_data = Psuedo_data(pseudo_data_list)
+        new_train_data = train_data + pseudo_data # return: ConcatDataset
+        new_unlabel_data = Psuedo_data(unlabeled_data_list)
+        
+        new_train_loader = torch.utils.data.DataLoader(
+            dataset=new_train_data,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=8
+        )
+        
+        new_unlabeled_loader = torch.utils.data.DataLoader(
+            dataset=new_unlabel_data,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=8
+        )
+        
+    return new_train_loader, new_unlabeled_loader
 
 
 def fine_tune_pretrain_model(model, train_loader, val_loader, num_classes, saved_dir, epochs=10):
 
     # pretrain teacher model
     model = model.to(device)
-    model.train()
     Criterion = nn.CrossEntropyLoss(reduction='none')
     Criterion = Criterion.to(device)
     optimizer = torch.optim.Adam(model.parameters(),0.001)
@@ -506,7 +462,7 @@ def fine_tune_pretrain_model(model, train_loader, val_loader, num_classes, saved
     # concat LP's psudeo labels & teacher's psuedo labels 
     feature = np.concatenate((lb_out[idx], predict_softmax), axis=1)
     logger.info(f'feature: {np.shape(feature)}, unlabeled_data_gts: {np.shape(unlabeled_data_gts)}')
-    feature_data = Psuedo_label_data(feature, unlabeled_data_gts)
+    feature_data = Concat_Psuedo_label_data(feature, unlabeled_data_gts)
     fc_input_loader = DataLoader(dataset=feature_data, batch_size=batch_size)
     
     # train FC
@@ -548,7 +504,7 @@ def self_training_cycle(iteration, teacher_model, pseudo_label_model, train_load
     predict_softmax = np.array(unlabeled_data_softmax_preds)
     ext_feature = np.concatenate([labeled_data_features, unlabeled_data_features])
     all_label = np.concatenate([labeled_data_gts, unlabeled_data_gts])
-    logger.info(f'shape: ext_feature:{np.shape(ext_feature)}, all_label: {np.shape(all_label)}')
+    logger.info(f'Do label propagation: ext_feature:{np.shape(ext_feature)}, all_label: {np.shape(all_label)}')
     
     lb_out, idx = Label_Propagation(
         ext_feature=ext_feature, 
@@ -559,7 +515,7 @@ def self_training_cycle(iteration, teacher_model, pseudo_label_model, train_load
     # concat LP's psudeo labels & teacher's psuedo labels 
     feature = np.concatenate((lb_out[idx], predict_softmax), axis=1)
     logger.info(f'feature: {np.shape(feature)}, unlabeled_data_gts: {np.shape(unlabeled_data_gts)}')
-    feature_data = Psuedo_label_data(feature, unlabeled_data_gts)
+    feature_data = Concat_Psuedo_label_data(feature, unlabeled_data_gts)
     fc_input_loader = DataLoader(dataset=feature_data, batch_size=batch_size)
 
     logger.info('use model and LB predict label to predict pesudo label...')
@@ -574,14 +530,14 @@ def self_training_cycle(iteration, teacher_model, pseudo_label_model, train_load
         pre_soft=pre_soft,
         pre_hard=pre_hard,
         dataset_type='MNIST',
-        train_loader=train_loader,
+        train_data=train_loader.dataset,
         unlabeled_loader=unlabeled_loader,
         num_classes=num_classes
     )
 
     student_model, student_acc = train(
         iteration=iteration,
-        n_epochs=n_epochs,
+        n_epochs=student_epochs,
         model=teacher_model,
         data_loader_train=train_loader,
         data_loader_val=val_loader,
@@ -601,7 +557,6 @@ def main(train_loader, val_loader, unlabeled_loader, pretrain_model, save_model_
     
     logger.info('fin-tune pre-train model...')
     logger.info(f'===cycle: {0}, labeled data: {len(train_loader.dataset)}, unlabeled data: {len(unlabeled_loader.dataset)}=======')
-    finetune_epochs = 10
     
     teacher_model, pseudo_label_model = fine_tune_pretrain_model(
         model=pretrain_model, 
@@ -609,7 +564,7 @@ def main(train_loader, val_loader, unlabeled_loader, pretrain_model, save_model_
         val_loader=val_loader,
         num_classes=num_classes,
         saved_dir=os.path.join(save_model_dir, 'pretrain'),
-        epochs=finetune_epochs
+        epochs=teacher_epochs
     )
 
     student_test_acc = []
@@ -655,14 +610,12 @@ def main(train_loader, val_loader, unlabeled_loader, pretrain_model, save_model_
 
 if __name__ == '__main__':
     # ToDo: used args
-    # seed = 0
-    # set_seed(seed)
-    batch_size = 10
-    n_epochs = 30
-    iteration = 0
-    shuffle, debug = False, False # for debug
+    batch_size = 32
+    teacher_epochs, student_epochs = 2, 10
+    debug = False # for debug
+    shuffle = not debug
     max_self_training_iteration = 10
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:7' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Start batch size: {batch_size}, device: {device}')
 
     if not os.path.exists('pic'):
@@ -690,13 +643,12 @@ if __name__ == '__main__':
 
     num_classes = data_train.get_num_classes()
 
-    # # debug
-    # labeled_data, unlabeled_data = data_train, data_test
-    # train_data, val_data = data_train, data_train
-
-    # real
-    train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
-    val_data = data_test
+    if debug:
+        labeled_data, unlabeled_data = data_train, data_test
+        train_data, val_data = data_train, data_train
+    else:
+        train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
+        val_data = data_test
 
     train_loader = torch.utils.data.DataLoader(
         dataset=train_data,
@@ -720,6 +672,20 @@ if __name__ == '__main__':
     )
     
     pretrain_model = gray_resnet18(num_classes=num_classes)
+    
+
+    # # debug
+    # train_loader, unlabeled_loader = add_pseudo(
+    #     pre_soft=[[0.91, 0.8, 0.7], [0.8, 0.91, 0.7], [0.7, 0.8, 0.87]],
+    #     pre_hard=[0, 1, 2],
+    #     dataset_type='MNIST',
+    #     train_data=train_loader.dataset,
+    #     unlabeled_loader=unlabeled_loader,
+    #     num_classes=3
+    # )
+    
+    # for step, data in enumerate(train_loader):
+    #     X_train, label, omega = data
     
     main(
         train_loader, 

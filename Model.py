@@ -9,12 +9,12 @@ from torchvision.models.resnet import ResNet, BasicBlock, Bottleneck
 import torch
 from torch.nn import functional as F
 from torchvision import models
-
+from torchvision.models import ResNet18_Weights
 
 class gray_resnet18(nn.Module):
     def __init__(self, num_classes):
         super(gray_resnet18, self).__init__()
-        self.model = models.resnet18(pretrained=True)
+        self.model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
         self.model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=1, padding=3, bias=False)
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
 
