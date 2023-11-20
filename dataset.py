@@ -55,7 +55,7 @@ class MNIST_omega(Dataset):
     def __getitem__(self, index):
         img, target = self.mnist[index]
 
-        return img, target, self.omega[index]
+        return (img, target, self.omega[index])
 
     def __len__(self):
         return len(self.mnist)

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import gc
 import copy
 import glob
 import time
@@ -61,8 +62,8 @@ def Label_Propagation(ext_feature, all_label, num_labeled_samples):
     # make feature to 2d: (n_samples, n_features)
     ext_feature = ext_feature.reshape((ext_feature.shape[0], -1))
     
-    scaler = StandardScaler()
-    ext_feature = scaler.fit_transform(ext_feature)
+    # scaler = StandardScaler()
+    # ext_feature = scaler.fit_transform(ext_feature)
 
     all_indices = np.arange(len(ext_feature))
     unlabeled_indices = all_indices[num_labeled_samples:]
@@ -80,28 +81,90 @@ def Label_Propagation(ext_feature, all_label, num_labeled_samples):
     return lp_model.label_distributions_, unlabeled_indices
 
 
-def tensor_to_list(x, k):
-    x = x.cpu().numpy().tolist()
-    k.extend(x)
+def get_feature_and_label_propagation(teacher_model, model_type, labeled_loader, unlabeled_loader):
     
-    return k
+    features_data_path = 'features_data'
+    if not os.path.exists(features_data_path):
+        os.makedirs(features_data_path)
+    
+    logger.info('labeled data: predict label and get feature')
+    labeled_data_features, labeled_data_gts, labeled_data_softmax_preds, labeled_data_acc = predict(
+        model=teacher_model, 
+        model_type=model_type, 
+        test_loader=labeled_loader
+    )
+
+    # used mmap_mode to avoid OOM
+    np.save(os.path.join(features_data_path, 'labeled_data_features.npy'), labeled_data_features)
+    del labeled_data_features
+    labeled_data_features = np.load(os.path.join(features_data_path, 'labeled_data_features.npy'), mmap_mode='r')
+
+    logger.info('unlabeled data: predict label and get feature')
+    unlabeled_data_features, unlabeled_data_gts, unlabeled_data_softmax_preds, unlabeled_data_acc = predict(
+        model=teacher_model, 
+        model_type=model_type, 
+        test_loader=unlabeled_loader
+    )
+
+    # used mmap_mode to avoid OOM
+    np.save(os.path.join(features_data_path, 'unlabeled_data_features.npy'), unlabeled_data_features)
+    del unlabeled_data_features
+    unlabeled_data_features = np.load(os.path.join(features_data_path, 'unlabeled_data_features.npy'), mmap_mode='r')
+    
+    ext_feature = np.concatenate([labeled_data_features, unlabeled_data_features])
+    all_label = np.concatenate([labeled_data_gts, unlabeled_data_gts])
+    logger.info(f'shape: ext_feature:{np.shape(ext_feature)}, all_label: {np.shape(all_label)}')
+    
+    num_labeled_samples=len(labeled_data_features)
+    
+    del labeled_data_features, labeled_data_gts, labeled_data_softmax_preds, labeled_data_acc
+    del unlabeled_data_features, unlabeled_data_acc
+    
+    if debug:
+        all_indices = np.arange(len(ext_feature))
+        lb_out, idx = torch.nn.functional.one_hot(torch.tensor(all_label), num_classes=num_classes), all_indices[num_labeled_samples:]
+    else:
+        lb_out, idx = Label_Propagation(
+            ext_feature=ext_feature, 
+            all_label=all_label, 
+            num_labeled_samples=num_labeled_samples
+        )
+    
+    del ext_feature, all_label
+
+    # concat LP's psudeo labels & teacher's psuedo labels 
+    feature = np.concatenate([lb_out[idx], unlabeled_data_softmax_preds], axis=1)
+    logger.info(f'feature: {np.shape(feature)}, unlabeled_data_gts: {np.shape(unlabeled_data_gts)}')
+    feature_data = Concat_Psuedo_label_data(feature, unlabeled_data_gts)
+    fc_input_loader = DataLoader(dataset=feature_data, batch_size=batch_size)
+    
+    return fc_input_loader
 
 
-def test(model, model_type, test_loader, device):
+def predict(model, model_type, test_loader):
     model.eval()
     with torch.no_grad():
-        correct = 0
-        pre_soft, gt_label, features = [], [], []
-
-        def hook(module, input, output): 
-            x = output.detach().cpu()
-            features.append(x)
+        pbar = tqdm(test_loader)
+        correct, total_sample = 0, len(test_loader.dataset)
+        pre_soft = np.zeros((total_sample, num_classes), dtype=np.float32)
+        gt_label = np.zeros(total_sample, dtype=np.int64)
+        features = None
+        batch_start, batch_end = 0, 0
         
+        
+        def hook(module, input, output):
+            nonlocal features, batch_start, batch_end
+            if features is None:
+                features = np.zeros((total_sample,) + output.shape[1:], dtype=np.float32)
+                
+            batch_end = batch_start + output.shape[0]
+            features[batch_start : batch_end, ...] = output.detach().cpu().numpy()
+            
+            
         # need to rewrite feature extract for different models
         if model_type == 'resnet':
             handle = model.model.layer4[-1].register_forward_hook(hook)
             
-        pbar = tqdm(test_loader)
         for imgs, labels, _ in pbar:
             
             imgs, labels = imgs.to(device), labels.to(device)
@@ -113,15 +176,17 @@ def test(model, model_type, test_loader, device):
             
             correct += (pre == labels).sum().item()
             
-            gt_label.append(labels.cpu())
-            pre_soft.append(predict_softmax.cpu())
+            gt_label[batch_start : batch_end, ...] = labels.cpu()
+            pre_soft[batch_start : batch_end, ...] = predict_softmax.cpu()
+            batch_start += batch_size
+        
+        handle.remove()
     
-    handle.remove()
+    
+    return features, gt_label, pre_soft, correct / len(test_loader.dataset)
 
-    return torch.cat(features, dim=0), torch.cat(gt_label, dim=0), torch.cat(pre_soft, dim=0), correct / len(test_loader.dataset)
 
-
-def train_FC(epochs, data_loader_train, model, dataset, device, save_dir):
+def train_FC(epochs, data_loader_train, model, device, save_dir):
     
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -165,12 +230,12 @@ def train_FC(epochs, data_loader_train, model, dataset, device, save_dir):
 
         logger.info(
             "[epoch {}/{}]Loss is:{:.4f}, Train Accuracy is:{:.4f}%".format(
-                epoch, (epochs), running_loss.item()/len(dataset), 100 * running_correct.item() / len(dataset),
+                epoch, (epochs), running_loss.item()/len(data_loader_train.dataset), 100 * running_correct.item() / len(data_loader_train.dataset),
                 )
         )
 
-        epoch_acc = running_correct.double() / len(dataset)
-        all.append(running_loss.item() / len(dataset))
+        epoch_acc = running_correct.double() / len(data_loader_train.dataset)
+        all.append(running_loss.item() / len(data_loader_train.dataset))
 
         if epoch_acc > best_acc:
             best_acc = epoch_acc
@@ -432,45 +497,18 @@ def fine_tune_pretrain_model(model, train_loader, val_loader, num_classes, saved
     modelfc.to(device)
     modelfc.train()
 
-    logger.info('labeled data: predict label and get feature')
-    labeled_data_features, labeled_data_gts, labeled_data_softmax_preds, labeled_data_acc = test( # 對label data做特徵擷取
-        model=teacher_model,
-        model_type='resnet',
-        test_loader=train_loader,
-        device=device
+    fc_input_loader = get_feature_and_label_propagation(
+        teacher_model=teacher_model,
+        model_type=model_type,
+        labeled_loader=train_loader,
+        unlabeled_loader=val_loader
     )
-
-    logger.info('unlabeled FC data: predict label and get feature')
-    unlabeled_data_features, unlabeled_data_gts, unlabeled_data_softmax_preds, unlabeled_data_acc = test( # 對unlabeled fc data做特徵擷取
-        model=teacher_model,
-        model_type='resnet',
-        test_loader=val_loader,
-        device=device
-    )
-
-    predict_softmax = np.array(unlabeled_data_softmax_preds)
-    ext_feature = np.concatenate([labeled_data_features, unlabeled_data_features])
-    all_label = np.concatenate([labeled_data_gts, unlabeled_data_gts])
-    logger.info(f'shape: ext_feature:{np.shape(ext_feature)}, all_label: {np.shape(all_label)}')
-    
-    lb_out, idx = Label_Propagation(
-        ext_feature=ext_feature, 
-        all_label=all_label, 
-        num_labeled_samples=len(labeled_data_features)
-    )
-
-    # concat LP's psudeo labels & teacher's psuedo labels 
-    feature = np.concatenate((lb_out[idx], predict_softmax), axis=1)
-    logger.info(f'feature: {np.shape(feature)}, unlabeled_data_gts: {np.shape(unlabeled_data_gts)}')
-    feature_data = Concat_Psuedo_label_data(feature, unlabeled_data_gts)
-    fc_input_loader = DataLoader(dataset=feature_data, batch_size=batch_size)
     
     # train FC
     modelfc = train_FC(
-        epochs=100,
+        epochs=10,
         data_loader_train=fc_input_loader,
         model=modelfc,
-        dataset=feature_data,
         device=device,
         save_dir=os.path.join(saved_dir, 'FC')
     )
@@ -485,38 +523,12 @@ def self_training_cycle(iteration, teacher_model, pseudo_label_model, train_load
     Criterion = nn.CrossEntropyLoss(reduction='none').to(device)
     optimizer = torch.optim.Adam(teacher_model.parameters(), 0.001)
 
-    logger.info('labeled data: predict label and get feature')
-    labeled_data_features, labeled_data_gts, labeled_data_softmax_preds, labeled_data_acc = test( # 對label data做特徵擷取
-        model=teacher_model,
-        model_type='resnet',
-        test_loader=train_loader,
-        device=device
+    fc_input_loader = get_feature_and_label_propagation(
+        teacher_model=teacher_model,
+        model_type=model_type,
+        labeled_loader=train_loader,
+        unlabeled_loader=unlabeled_loader
     )
-
-    logger.info('unlabeled FC data: predict label and get feature')
-    unlabeled_data_features, unlabeled_data_gts, unlabeled_data_softmax_preds, unlabeled_data_acc = test( # 對unlabeled fc data做特徵擷取
-        model=teacher_model,
-        model_type='resnet',
-        test_loader=unlabeled_loader,
-        device=device
-    )
-    
-    predict_softmax = np.array(unlabeled_data_softmax_preds)
-    ext_feature = np.concatenate([labeled_data_features, unlabeled_data_features])
-    all_label = np.concatenate([labeled_data_gts, unlabeled_data_gts])
-    logger.info(f'Do label propagation: ext_feature:{np.shape(ext_feature)}, all_label: {np.shape(all_label)}')
-    
-    lb_out, idx = Label_Propagation(
-        ext_feature=ext_feature, 
-        all_label=all_label, 
-        num_labeled_samples=len(labeled_data_features)
-    )
-
-    # concat LP's psudeo labels & teacher's psuedo labels 
-    feature = np.concatenate((lb_out[idx], predict_softmax), axis=1)
-    logger.info(f'feature: {np.shape(feature)}, unlabeled_data_gts: {np.shape(unlabeled_data_gts)}')
-    feature_data = Concat_Psuedo_label_data(feature, unlabeled_data_gts)
-    fc_input_loader = DataLoader(dataset=feature_data, batch_size=batch_size)
 
     logger.info('use model and LB predict label to predict pesudo label...')
     pre_soft, pre_hard = test_FC(
@@ -611,18 +623,19 @@ def main(train_loader, val_loader, unlabeled_loader, pretrain_model, save_model_
 if __name__ == '__main__':
     # ToDo: used args
     batch_size = 32
-    teacher_epochs, student_epochs = 2, 10
+    teacher_epochs, student_epochs = 0, 5
     debug = False # for debug
     shuffle = not debug
+    model_type = 'resnet'
     max_self_training_iteration = 10
-    device = torch.device('cuda:7' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Start batch size: {batch_size}, device: {device}')
 
     if not os.path.exists('pic'):
         os.makedirs('pic')
 
     transform = transforms.Compose([
-        transforms.Resize((256,256)),
+        transforms.Resize((256, 256)),
         transforms.ToTensor(),
     ])
 
@@ -631,21 +644,25 @@ if __name__ == '__main__':
         train=True,
         transform=transform,
         download=True,
-        debug=debug
+        debug=False
     )  
     
     data_test = MNIST_omega(
         root='./mnist/',
         train=False,
         transform=transform,
-        debug=debug
+        debug=False
     )
 
     num_classes = data_train.get_num_classes()
 
     if debug:
-        labeled_data, unlabeled_data = data_train, data_test
-        train_data, val_data = data_train, data_train
+        teacher_epochs, student_epochs = 0, 1
+        shuffle = True
+        train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
+        val_data = data_test
+        # labeled_data, unlabeled_data = data_train, data_test
+        # train_data, val_data = data_train, data_train
     else:
         train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
         val_data = data_test
@@ -672,20 +689,6 @@ if __name__ == '__main__':
     )
     
     pretrain_model = gray_resnet18(num_classes=num_classes)
-    
-
-    # # debug
-    # train_loader, unlabeled_loader = add_pseudo(
-    #     pre_soft=[[0.91, 0.8, 0.7], [0.8, 0.91, 0.7], [0.7, 0.8, 0.87]],
-    #     pre_hard=[0, 1, 2],
-    #     dataset_type='MNIST',
-    #     train_data=train_loader.dataset,
-    #     unlabeled_loader=unlabeled_loader,
-    #     num_classes=3
-    # )
-    
-    # for step, data in enumerate(train_loader):
-    #     X_train, label, omega = data
     
     main(
         train_loader, 
