@@ -4,7 +4,7 @@ import torch
 import pandas as pd
 
 from PIL import Image
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 
 class MNIST_omega(Dataset):
@@ -16,7 +16,7 @@ class MNIST_omega(Dataset):
             self.mnist = datasets.MNIST(root, train=train, transform=transform, download=download)
             self.classes = len(self.mnist.classes)
 
-        self.omega = [1.] * len(self.mnist)
+        self.omega = torch.tensor([1.] * len(self.mnist), dtype=torch.float32)
 
     def debug_mnist(self, root, train, transform, download):
         # Load MNIST dataset
@@ -55,7 +55,8 @@ class MNIST_omega(Dataset):
     def __getitem__(self, index):
         img, target = self.mnist[index]
 
-        return (img, target, self.omega[index])
+        # all need to be tensor
+        return (img, torch.tensor(target), self.omega[index])
 
     def __len__(self):
         return len(self.mnist)
@@ -85,23 +86,6 @@ class Psuedo_data(Dataset):
     
     def __len__(self):
         return len(self.data)
-
-
-class SubsetSampler(Sampler):
-    r"""Samples elements from a given list of indices, without replacement.
-
-    Arguments:
-        indices (sequence): a sequence of indices
-    """
-
-    def __init__(self, indices):
-        self.indices = indices
-
-    def __iter__(self):
-        return (i for i in self.indices)
-
-    def __len__(self):
-        return len(self.indices)
 
 
 class ISIC_Dataset(Dataset):
@@ -135,3 +119,4 @@ class ISIC_Dataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+    

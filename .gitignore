@@ -1,6 +1,10 @@
 # dataset
 /mnist
 
+# folder
+/log
+/.vscode
+
 # model & pic & data
 *.pt
 *.png

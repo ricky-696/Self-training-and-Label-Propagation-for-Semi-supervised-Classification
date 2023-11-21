@@ -4,6 +4,42 @@ import random
 import pickle
 import numpy as np
 
+import subprocess
+from torchvision.utils import make_grid
+import torchvision.transforms.functional as TF
+from torch.utils.tensorboard import SummaryWriter
+
+
+def vis_pseudo_data_images(pseudo_data_loader, vis_batch_num, log_dir='.'):
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # 創建 SummaryWriter
+    writer = SummaryWriter(log_dir)
+
+    # 獲取指定批次數據
+    for batch_idx, batch_data in enumerate(pseudo_data_loader):
+        
+        if batch_idx >= vis_batch_num:
+            break
+
+        # 解包數據
+        img, label, omega = batch_data
+        
+        grouped_images = {}
+        for i in range(img.shape[0]):
+            label_value = label[i].item()
+            
+            if label_value not in grouped_images:
+                grouped_images[label_value] = []
+                
+            grouped_images[label_value].append(img[i])
+
+        for label_value, images in grouped_images.items():
+            writer.add_images(f'pseudo_label: {label_value}', torch.stack(images, dim=0), global_step=batch_idx)
+
+    # 關閉 SummaryWriter
+    writer.close()
+
 
 def set_seed(seed):
     random.seed(seed)
@@ -49,3 +85,35 @@ def load_object(filename):
             return pickle.load(f)
     except Exception as ex:
         print("Error during unpickling object (Possibly unsupported):", ex)
+        
+
+if __name__ == '__main__':
+    from dataset import MNIST_omega
+    from torchvision import transforms
+    
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+    ])
+    
+    dataset =  MNIST_omega(
+        root='./mnist/',
+        transform=transform
+    )
+    
+    dataloader = torch.utils.data.DataLoader(
+        dataset=dataset,
+        batch_size=32,
+        shuffle=True,
+        num_workers=8
+    )
+    
+    log_dir = 'log/vis_pseudo_data'
+    tensorboard_process = subprocess.Popen(["tensorboard", "--logdir", log_dir])
+    
+    vis_pseudo_data_images(
+        dataloader, 
+        vis_batch_num=5, 
+        log_dir=log_dir
+    )
+    
+    tensorboard_process.terminate()

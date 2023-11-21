@@ -29,9 +29,12 @@ from sklearn.metrics import confusion_matrix, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.semi_supervised import LabelPropagation
 
-from Model import FC, gray_resnet18
+from utils import vis_pseudo_data_images
+from Model import FC, gray_resnet18, Network
 from dataset import Psuedo_data, Concat_Psuedo_label_data, MNIST_omega
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module=".*OpenBLAS.*")
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 logger = logging.getLogger()
@@ -47,8 +50,7 @@ ch.setFormatter(formatter)
 log_filename = 'log/Med_SelfTraining.log'
 log_dir = os.path.dirname(log_filename)
 
-if not os.path.exists(log_dir):
-    os.makedirs(log_dir)
+os.makedirs(log_dir, exist_ok=True)
     
 fh = logging.FileHandler(log_filename)
 fh.setLevel(logging.DEBUG)
@@ -68,24 +70,23 @@ def Label_Propagation(ext_feature, all_label, num_labeled_samples):
     all_indices = np.arange(len(ext_feature))
     unlabeled_indices = all_indices[num_labeled_samples:]
     
-    logger.info(f'LB, total_samples: {len(all_label)}, labeled_points: {len(unlabeled_indices)}')
+    logger.info(f'Doing Label_Propagation, total_samples: {len(all_label)}, labeled_points: {len(unlabeled_indices)}')
     
     # labeled unlabel_data as -1
     y_train = np.copy(all_label)
     y_train[unlabeled_indices] = -1
     
     # Learn with LabelSpreading
-    lp_model = LabelPropagation(kernel='rbf') # used rbf or knn
+    lp_model = LabelPropagation(kernel='knn') # used rbf or knn
     lp_model.fit(ext_feature, y_train)
 
-    return lp_model.label_distributions_, unlabeled_indices
+    return lp_model.label_distributions_[unlabeled_indices]
 
 
 def get_feature_and_label_propagation(teacher_model, model_type, labeled_loader, unlabeled_loader):
     
     features_data_path = 'features_data'
-    if not os.path.exists(features_data_path):
-        os.makedirs(features_data_path)
+    os.makedirs(features_data_path, exist_ok=True)
     
     logger.info('labeled data: predict label and get feature')
     labeled_data_features, labeled_data_gts, labeled_data_softmax_preds, labeled_data_acc = predict(
@@ -95,6 +96,7 @@ def get_feature_and_label_propagation(teacher_model, model_type, labeled_loader,
     )
 
     # used mmap_mode to avoid OOM
+    logger.info('saving "labeled_data_features.npy')
     np.save(os.path.join(features_data_path, 'labeled_data_features.npy'), labeled_data_features)
     del labeled_data_features
     labeled_data_features = np.load(os.path.join(features_data_path, 'labeled_data_features.npy'), mmap_mode='r')
@@ -107,6 +109,7 @@ def get_feature_and_label_propagation(teacher_model, model_type, labeled_loader,
     )
 
     # used mmap_mode to avoid OOM
+    logger.info('saving "labeled_data_features.npy')
     np.save(os.path.join(features_data_path, 'unlabeled_data_features.npy'), unlabeled_data_features)
     del unlabeled_data_features
     unlabeled_data_features = np.load(os.path.join(features_data_path, 'unlabeled_data_features.npy'), mmap_mode='r')
@@ -121,19 +124,20 @@ def get_feature_and_label_propagation(teacher_model, model_type, labeled_loader,
     del unlabeled_data_features, unlabeled_data_acc
     
     if debug:
-        all_indices = np.arange(len(ext_feature))
-        lb_out, idx = torch.nn.functional.one_hot(torch.tensor(all_label), num_classes=num_classes), all_indices[num_labeled_samples:]
+        LP_data = np.load(os.path.join(features_data_path, 'Label_Propagation_features.npy'), mmap_mode='r')
     else:
-        lb_out, idx = Label_Propagation(
+        LP_data = Label_Propagation(
             ext_feature=ext_feature, 
             all_label=all_label, 
             num_labeled_samples=num_labeled_samples
         )
+
+        np.save(os.path.join(features_data_path, 'Label_Propagation_features.npy'), LP_data)
     
     del ext_feature, all_label
 
     # concat LP's psudeo labels & teacher's psuedo labels 
-    feature = np.concatenate([lb_out[idx], unlabeled_data_softmax_preds], axis=1)
+    feature = np.concatenate([LP_data, unlabeled_data_softmax_preds], axis=1)
     logger.info(f'feature: {np.shape(feature)}, unlabeled_data_gts: {np.shape(unlabeled_data_gts)}')
     feature_data = Concat_Psuedo_label_data(feature, unlabeled_data_gts)
     fc_input_loader = DataLoader(dataset=feature_data, batch_size=batch_size)
@@ -152,18 +156,19 @@ def predict(model, model_type, test_loader):
         batch_start, batch_end = 0, 0
         
         
-        def hook(module, input, output):
+        def hook(module, input):
             nonlocal features, batch_start, batch_end
+            input = input[0]
             if features is None:
-                features = np.zeros((total_sample,) + output.shape[1:], dtype=np.float32)
+                features = np.zeros((total_sample,) + input.shape[1:], dtype=np.float32)
                 
-            batch_end = batch_start + output.shape[0]
-            features[batch_start : batch_end, ...] = output.detach().cpu().numpy()
+            batch_end = batch_start + input.shape[0]
+            features[batch_start : batch_end, ...] = input.detach().cpu().numpy()
             
             
         # need to rewrite feature extract for different models
         if model_type == 'resnet':
-            handle = model.model.layer4[-1].register_forward_hook(hook)
+            handle = model.model.fc.register_forward_pre_hook(hook)
             
         for imgs, labels, _ in pbar:
             
@@ -188,8 +193,7 @@ def predict(model, model_type, test_loader):
 
 def train_FC(epochs, data_loader_train, model, device, save_dir):
     
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+    os.makedirs(save_dir,exist_ok=True)
     
     model.train()
     model.to(device)
@@ -216,11 +220,11 @@ def train_FC(epochs, data_loader_train, model, device, save_dir):
             X_train = X_train.to(device)
             y_train = y_train.to(device)
                 
-            outputs = model(X_train)
-            _, pred = torch.max(outputs.data, 1)
+            inputs = model(X_train)
+            _, pred = torch.max(inputs.data, 1)
             optimizer.zero_grad()
             
-            loss = cost(outputs, y_train)
+            loss = cost(inputs, y_train)
             
             loss.backward()
             optimizer.step()
@@ -243,8 +247,7 @@ def train_FC(epochs, data_loader_train, model, device, save_dir):
 
     
     fig_path = os.path.join('pic', 'FC')
-    if not os.path.exists(fig_path):
-        os.makedirs(fig_path)
+    os.makedirs(fig_path, exist_ok=True)
         
     plt.figure(figsize=(7,7),dpi=200)
     plt.plot(all, 'b-o')
@@ -300,12 +303,11 @@ def test_FC(data_loader, modelfc, device):
 
 
 def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_classes, optimizer, Criterion, save_dir):
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+
+    os.makedirs(save_dir, exist_ok=True)
 
     img_dir = 'pic'
-    if not os.path.exists(img_dir):
-        os.makedirs(img_dir)
+    os.makedirs(img_dir, exist_ok=True)
 
     model.train()
     since = time.time()
@@ -348,10 +350,11 @@ def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_cl
             omega = omega.to(device)
             z = torch.index_select(zeta, 0, label).to(device)
 
-            outputs = model(X_train)
-            _, pred = torch.max(outputs.data, 1)
+            inputs = model(X_train)
+            _, pred = torch.max(inputs.data, 1)
             optimizer.zero_grad()
-            loss = (Criterion(outputs, y_train) * omega * (1 / z)).sum()
+            loss = Criterion(inputs, y_train).sum()
+            # loss = (Criterion(inputs, y_train) * omega * (1 / z)).sum()
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
@@ -375,9 +378,9 @@ def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_cl
             X_val, y_val = Variable(X_val), Variable(y_val)
             X_val = X_val.to(device)
             y_val = y_val.to(device)
-            outputs = model(X_val)
-            _, pred = torch.max(outputs.data, 1)
-            loss = Criterion(outputs, y_val).mean()
+            inputs = model(X_val)
+            _, pred = torch.max(inputs.data, 1)
+            loss = Criterion(inputs, y_val).mean()
             val_loss += loss.item()
             val_correct += torch.sum(pred == y_val.data).item()
             pbar_val.set_postfix(Loss=val_loss / val_cnt, correct=val_correct / val_cnt)
@@ -430,6 +433,7 @@ def train(iteration, n_epochs, model, data_loader_train, data_loader_val, num_cl
 
     return model, best_acc
     
+   
 def add_pseudo(pre_soft, pre_hard, dataset_type, train_data, unlabeled_loader, num_classes, threshold=0.9):
     
     # get the idx for unlabeled data
@@ -449,9 +453,13 @@ def add_pseudo(pre_soft, pre_hard, dataset_type, train_data, unlabeled_loader, n
                 
         # create new data
         pseudo_data = Psuedo_data(pseudo_data_list)
-        new_train_data = train_data + pseudo_data # return: ConcatDataset
-        new_unlabel_data = Psuedo_data(unlabeled_data_list)
+        vis_pseudo_data_images(
+            torch.utils.data.DataLoader(pseudo_data, batch_size=batch_size),
+            vis_batch_num=5, 
+            log_dir=os.path.join('log', 'pseudo_labels')
+        )
         
+        new_train_data = train_data + pseudo_data # return: ConcatDataset
         new_train_loader = torch.utils.data.DataLoader(
             dataset=new_train_data,
             batch_size=batch_size,
@@ -459,10 +467,11 @@ def add_pseudo(pre_soft, pre_hard, dataset_type, train_data, unlabeled_loader, n
             num_workers=8
         )
         
+        new_unlabel_data = Psuedo_data(unlabeled_data_list)
         new_unlabeled_loader = torch.utils.data.DataLoader(
             dataset=new_unlabel_data,
             batch_size=batch_size,
-            shuffle=shuffle,
+            shuffle=len(new_unlabel_data) > 0, # Set shuffle to False if no new unlabeled data
             num_workers=8
         )
         
@@ -493,7 +502,7 @@ def fine_tune_pretrain_model(model, train_loader, val_loader, num_classes, saved
 
     # pretrain pseudo label predict model(FC)
     logger.info('train pseudo label predict model(FC)...')
-    modelfc = FC(num_classes=int(num_classes * 2))
+    modelfc = Network() # used original's FC
     modelfc.to(device)
     modelfc.train()
 
@@ -506,7 +515,7 @@ def fine_tune_pretrain_model(model, train_loader, val_loader, num_classes, saved
     
     # train FC
     modelfc = train_FC(
-        epochs=10,
+        epochs=100,
         data_loader_train=fc_input_loader,
         model=modelfc,
         device=device,
@@ -564,8 +573,7 @@ def self_training_cycle(iteration, teacher_model, pseudo_label_model, train_load
 
 def main(train_loader, val_loader, unlabeled_loader, pretrain_model, save_model_dir):
     
-    if not os.path.exists(save_model_dir):
-        os.makedirs(save_model_dir)
+    os.makedirs(save_model_dir, exist_ok=True)
     
     logger.info('fin-tune pre-train model...')
     logger.info(f'===cycle: {0}, labeled data: {len(train_loader.dataset)}, unlabeled data: {len(unlabeled_loader.dataset)}=======')
@@ -623,7 +631,7 @@ def main(train_loader, val_loader, unlabeled_loader, pretrain_model, save_model_
 if __name__ == '__main__':
     # ToDo: used args
     batch_size = 32
-    teacher_epochs, student_epochs = 0, 5
+    teacher_epochs, student_epochs = 1, 3
     debug = False # for debug
     shuffle = not debug
     model_type = 'resnet'
@@ -631,8 +639,7 @@ if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Start batch size: {batch_size}, device: {device}')
 
-    if not os.path.exists('pic'):
-        os.makedirs('pic')
+    os.makedirs('pic', exist_ok=True)
 
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
