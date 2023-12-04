@@ -5,32 +5,71 @@ import pandas as pd
 import nibabel as nib
 
 from PIL import Image
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 
 class MNIST_omega(Dataset):
-    def __init__(self, root, train=True, transform=None, download=True):
+    def __init__(self, root, train=True, transform=None, download=True, debug=False):
         super().__init__()
-        self.mnist = datasets.MNIST(root, train=train, transform=transform, download=True)
-        self.train = train
-        self.omega = [1.] * len(self.mnist)
+        if debug:
+            self.mnist, self.classes = self.debug_mnist(root, train, transform, download)
+        else:
+            self.mnist = datasets.MNIST(root, train=train, transform=transform, download=download)
+            self.classes = len(self.mnist.classes)
+
+        self.omega = torch.tensor([1.] * len(self.mnist), dtype=torch.float32)
+
+    def debug_mnist(self, root, train, transform, download):
+        # Load MNIST dataset
+        mnist = datasets.MNIST(root, train=train, transform=transform, download=download)
+
+        # Get the number of classes
+        num_classes = len(mnist.classes)
+
+        # Initialize a list to keep track of whether each class has at least one sample
+        class_samples = [False] * num_classes
+
+        # Initialize a list to store the selected samples
+        selected_samples = []
+
+        # Iterate through the MNIST dataset
+        for i in range(len(mnist)):
+            img, target = mnist[i]
+
+            # Check if the class has been encountered before
+            if not class_samples[target]:
+                # Add the sample to the list
+                selected_samples.append((img, target))
+                class_samples[target] = True
+
+            # Check if all classes have at least one sample
+            if all(class_samples):
+                for j in range(i, i + num_classes):
+                    img, target = mnist[j]
+                    selected_samples.append((img, target))
+                
+                break
+
+        # Return a new dataset with the selected samples
+        return selected_samples, num_classes
 
     def __getitem__(self, index):
         img, target = self.mnist[index]
 
-        return img, target, self.omega[index]
+        # all need to be tensor
+        return (img, torch.tensor(target), self.omega[index])
 
     def __len__(self):
         return len(self.mnist)
     
     def get_num_classes(self):
-        return len(self.mnist.classes)
+        return self.classes
 
 
-class MyDataset(Dataset):
-    def __init__(self,x,y):
-        self.data = torch.from_numpy(x)
-        self.label = torch.from_numpy(y)
+class Concat_Psuedo_label_data(Dataset):
+    def __init__(self, x, y):
+        self.data = torch.from_numpy(x).float()
+        self.label = y
 
     def __getitem__(self,index):
         return self.data[index],self.label[index]
@@ -39,21 +78,15 @@ class MyDataset(Dataset):
         return len(self.data)
     
 
-class SubsetSampler(Sampler):
-    r"""Samples elements from a given list of indices, without replacement.
+class Psuedo_data(Dataset):
+    def __init__(self, data):
+        self.data = data
 
-    Arguments:
-        indices (sequence): a sequence of indices
-    """
-
-    def __init__(self, indices):
-        self.indices = indices
-
-    def __iter__(self):
-        return (i for i in self.indices)
-
+    def __getitem__(self,index):
+        return self.data[index]
+    
     def __len__(self):
-        return len(self.indices)
+        return len(self.data)
 
 
 class ISIC_Dataset(Dataset):
@@ -87,6 +120,7 @@ class ISIC_Dataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+<<<<<<< HEAD
     
 # class MSD_Dataset(Dataset):
 #     def __init__(self, type = 'train', transform = None):
@@ -109,3 +143,6 @@ class ISIC_Dataset(Dataset):
 #         image = nib.load(data_path)
                 
         
+=======
+    
+>>>>>>> a24d2593845665f540f75225484a1191d26a8945

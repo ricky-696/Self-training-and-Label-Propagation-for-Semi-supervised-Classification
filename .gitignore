@@ -1,9 +1,14 @@
 # dataset
 /mnist
 
-# model & pic
+# folder
+/log
+/.vscode
+
+# model & pic & data
 *.pt
 *.png
+*.npy
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
