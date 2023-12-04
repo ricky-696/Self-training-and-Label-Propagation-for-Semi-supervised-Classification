@@ -120,7 +120,7 @@ class ISIC_Dataset(Dataset):
 
     def __len__(self):
         return len(self.data)
-<<<<<<< HEAD
+
     
 # class MSD_Dataset(Dataset):
 #     def __init__(self, type = 'train', transform = None):
@@ -142,7 +142,4 @@ class ISIC_Dataset(Dataset):
 #         data_path = self.data[index]
 #         image = nib.load(data_path)
                 
-        
-=======
-    
->>>>>>> a24d2593845665f540f75225484a1191d26a8945
+
