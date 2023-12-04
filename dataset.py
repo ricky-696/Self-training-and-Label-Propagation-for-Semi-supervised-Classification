@@ -2,6 +2,7 @@ import os
 import glob
 import torch
 import pandas as pd
+import nibabel as nib
 
 from PIL import Image
 from torch.utils.data import Dataset, Sampler
@@ -86,3 +87,25 @@ class ISIC_Dataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+    
+# class MSD_Dataset(Dataset):
+#     def __init__(self, type = 'train', transform = None):
+#         self.data = []
+#         self.transform = transform
+#         if type == 'train':
+#             data_glob = glob.glob('/home/ltc110u/Task06_Lung/imagesTr/*.nii.gz')
+#             label_glob = glob.glob('/home/ltc110u/Task06_Lung/labelsTr/*.nii.gz')
+#         elif type == 'valid':
+#             data_glob = glob.glob('/home/ltc110u/Task06_Lung/imagesTs/*.nii.gz')
+#         for i, data_path in enumerate(data_glob):
+#             self.data.append(data_path)
+#             data_name = data_path.split('/')[-1].split('.')[0]
+            
+#     def __len__(self):
+#         return len(self.data)
+    
+#     def __getitem__(self, index):
+#         data_path = self.data[index]
+#         image = nib.load(data_path)
+                
+        
