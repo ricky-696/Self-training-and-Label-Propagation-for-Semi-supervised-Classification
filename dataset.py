@@ -6,6 +6,7 @@ import pandas as pd
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
+from torch.utils.data import random_split
 
 class MNIST_omega(Dataset):
     def __init__(self, root, train=True, transform=None, download=True, debug=False):
@@ -56,7 +57,13 @@ class MNIST_omega(Dataset):
         img, target = self.mnist[index]
 
         # all need to be tensor
-        return (img, torch.tensor(target), self.omega[index])
+        batch = {}
+        batch['img'] = img
+        batch['label'] = torch.tensor(target)
+        batch['omega'] = self.omega[index]
+        batch['idx'] = torch.tensor(index)
+
+        return batch
 
     def __len__(self):
         return len(self.mnist)
@@ -65,7 +72,7 @@ class MNIST_omega(Dataset):
         return self.classes
 
 
-class Concat_Psuedo_label_data(Dataset):
+class Concat_Pseudo_label_data(Dataset):
     def __init__(self, x, y):
         self.data = torch.from_numpy(x).float()
         self.label = y
@@ -77,11 +84,14 @@ class Concat_Psuedo_label_data(Dataset):
         return len(self.data)
     
 
-class Psuedo_data(Dataset):
+class Pseudo_data(Dataset):
     def __init__(self, data):
         self.data = data
 
-    def __getitem__(self,index):
+    def __getitem__(self, index):
+        # put new idx into Pseudo data
+        self.data[index]['idx'] = torch.tensor(index)
+        
         return self.data[index]
     
     def __len__(self):
@@ -119,4 +129,32 @@ class ISIC_Dataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+    
+    
+if __name__ == '__main__':
+    
+    transform = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+    ])
+    
+    data_train = MNIST_omega(
+            root='./mnist/',
+            train=True,
+            transform=transform,
+            download=True,
+            debug=False
+    )
+    
+    train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
+    
+    # train_loader = torch.utils.data.DataLoader(
+    #     dataset=data_train,
+    #     batch_size=32,
+    #     shuffle=True,
+    #     num_workers=8
+    # )
+    
+    for batch in data_train:
+        print('here')
     

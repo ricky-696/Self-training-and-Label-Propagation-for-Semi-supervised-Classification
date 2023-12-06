@@ -1,13 +1,44 @@
 import os
 import torch
+import logging
 import random
-import pickle
 import numpy as np
-
-import subprocess
+from dataset import Pseudo_data
 from torchvision.utils import make_grid
 import torchvision.transforms.functional as TF
 from torch.utils.tensorboard import SummaryWriter
+
+
+def get_logger(log_filename='log/Med_SelfTraining.log'):
+    os.environ['KMP_DUPLICATE_LIB_OK']='True'
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(
+        '[%(levelname)1.1s %(asctime)s %(funcName)s:%(lineno)d] %(message)s',
+        datefmt='%Y%m%d %H:%M:%S')
+
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(formatter)
+    
+    log_dir = os.path.dirname(log_filename)
+    os.makedirs(log_dir, exist_ok=True)
+        
+    fh = logging.FileHandler(log_filename)
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(formatter)
+    logging.getLogger('matplotlib.font_manager').disabled = True
+    logger.addHandler(ch)
+    logger.addHandler(fh)
+    
+    return logger
+
+
+def get_original_dataset(dataset):
+    while isinstance(dataset, torch.utils.data.Subset):
+        dataset = dataset.dataset
+        
+    return dataset
 
 
 def vis_pseudo_data_images(pseudo_data_loader, vis_batch_num, log_dir='.'):
@@ -23,22 +54,46 @@ def vis_pseudo_data_images(pseudo_data_loader, vis_batch_num, log_dir='.'):
             break
 
         # 解包數據
-        img, label, omega = batch_data
+        batch = batch_data
         
         grouped_images = {}
-        for i in range(img.shape[0]):
-            label_value = label[i].item()
+        for i in range(batch['img'].shape[0]):
+            label_value = batch['label'][i].item()
             
             if label_value not in grouped_images:
                 grouped_images[label_value] = []
                 
-            grouped_images[label_value].append(img[i])
+            grouped_images[label_value].append(batch['img'][i])
 
         for label_value, images in grouped_images.items():
             writer.add_images(f'pseudo_label: {label_value}', torch.stack(images, dim=0), global_step=batch_idx)
 
     # 關閉 SummaryWriter
     writer.close()
+
+
+def vis_LP_pseudo_label(data_loader, sample_idx, LP_labels, batch_size, one_hot=True):
+    pseudo_data_list = []
+    
+    dataset = get_original_dataset(data_loader.dataset)
+        
+    for i in range(len(LP_labels)):
+        batch = dataset[sample_idx[i]]
+        if one_hot:
+            batch['label'] = np.argmax(LP_labels[i], axis=0)
+        else:
+            batch['label'] = LP_labels[i]
+
+        pseudo_data_list.append(batch)
+
+    pseudo_data = Pseudo_data(pseudo_data_list)
+    vis_pseudo_data_images(
+        torch.utils.data.DataLoader(pseudo_data, batch_size=batch_size),
+        vis_batch_num=5, 
+        log_dir=os.path.join('log', 'pseudo_labels')
+    )
+
+    return 0
 
 
 def set_seed(seed):
@@ -51,43 +106,10 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     torch.use_deterministic_algorithms(True)
-
-
-def select_balance_data(dataset, train_idx, n_test=70):
-    labels = np.array(dataset.target)[train_idx]
-    classes = np.unique(labels)
-
-    ixs = []
-    for cl in classes:
-        ixs.append(np.random.choice(np.nonzero(labels==cl)[0], n_test,
-                replace=False))
-
-    # take same num of samples from all classes
-    # ix_train = np.concatenate([x[:n_train_per_class] for x in ixs])
-    # ix_test = np.concatenate([x[n_train_per_class:(n_train_per_class+n_test_per_class)] for x in ixs])
-    ix_unlabel = train_idx[ixs]
-    ix_label = train_idx[not ixs]
-
-    return ix_label, ix_unlabel
-
-
-def save_object(obj, filename):
-    try:
-        with open(f"{filename}.pickle", "wb") as f:
-            pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception as ex:
-        print("Error during pickling object (Possibly unsupported):", ex)
-
-
-def load_object(filename):
-    try:
-        with open(f"{filename}.pickle", "rb") as f:
-            return pickle.load(f)
-    except Exception as ex:
-        print("Error during unpickling object (Possibly unsupported):", ex)
         
 
 if __name__ == '__main__':
+    import subprocess
     from dataset import MNIST_omega
     from torchvision import transforms
     
