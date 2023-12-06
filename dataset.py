@@ -2,6 +2,7 @@ import os
 import glob
 import torch
 import pandas as pd
+import nibabel as nib
 
 from PIL import Image
 from torch.utils.data import Dataset
