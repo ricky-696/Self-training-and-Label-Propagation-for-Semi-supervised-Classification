@@ -448,7 +448,7 @@ def fine_tune_pretrain_model(args, model, model_fc, train_loader, val_loader, nu
     model = model.to(args.device)
     Criterion = nn.CrossEntropyLoss(reduction='none')
     Criterion = Criterion.to(args.device)
-    optimizer = torch.optim.Adam(model.parameters(),0.001)
+    optimizer = torch.optim.Adam(model.parameters(), 0.001)
 
     teacher_model, teacher_acc = train(
         args=args,
