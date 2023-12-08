@@ -1,6 +1,5 @@
 # dataset
-/mnist
-/nnunet_frame
+/Datasets
 
 # folder
 /log

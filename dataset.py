@@ -9,6 +9,15 @@ from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 from torch.utils.data import random_split
 
+"""
+If You Want Custom Datset, __getitem__() need return a dict 'batch':
+batch include following data: (All dtype need to be tensor)
+    batch['img'] = Your image (dtype: torch.float32)
+    batch['label'] = Your label (dtype: torch.int64)
+    batch['omega'] = class weights (dtype: torch.float32)
+    batch['idx'] = torch.tensor(dtype: torch.int64)
+"""
+
 class MNIST_omega(Dataset):
     def __init__(self, root, train=True, transform=None, download=True, debug=False):
         super().__init__()
@@ -99,63 +108,71 @@ class Pseudo_data(Dataset):
         return len(self.data)
 
 
-class ISIC_Dataset(Dataset):
-    def __init__(self, type='train', transform=None):
+class ISIC2018_Dataset(Dataset):
+    def __init__(self, type='train', data_dir=os.path.join('Datasets', 'ISIC2018'), transform=transforms.ToTensor()):
         self.data = []
         self.target = []
         self.transform = transform
-        self.omega = []
+
         if type=='train':
-            data_glob = glob.glob(os.path.join(r'D:\Project\Med_AI\data\ISIC2018\ISIC2018_Task3_Training_Input','*.jpg'))
-            GroundTruth = pd.read_csv(r'D:\Project\Med_AI\data\ISIC2018\ISIC2018_Task3_Training_GroundTruth\ISIC2018_Task3_Training_GroundTruth.csv',index_col='image')
+            data_glob = glob.glob(os.path.join(data_dir, 'ISIC2018_Task3_Training_Input', '*.jpg'))
+            GroundTruth = pd.read_csv(os.path.join(data_dir, 'ISIC2018_Task3_Training_GroundTruth', 'ISIC2018_Task3_Training_GroundTruth.csv'), index_col='image')
         elif type=='valid':
-            data_glob = glob.glob(os.path.join(r'D:\Project\Med_AI\data\ISIC2018\ISIC2018_Task3_Validation_Input','*.jpg'))
-            GroundTruth = pd.read_csv(r'D:\Project\Med_AI\data\ISIC2018\ISIC2018_Task3_Validation_GroundTruth\ISIC2018_Task3_Validation_GroundTruth.csv',index_col='image')
+            data_glob = glob.glob(os.path.join(data_dir, 'ISIC2018_Task3_Validation_Input', '*.jpg'))
+            GroundTruth = pd.read_csv(os.path.join(data_dir, 'ISIC2018_Task3_Validation_GroundTruth', 'ISIC2018_Task3_Validation_GroundTruth.csv'), index_col='image')
+
         GroundTruth.columns = ['0','1','2','3','4','5','6']
-        for i, data_path in enumerate(data_glob):
+        self.omega = torch.tensor([1.] * len(data_glob), dtype=torch.float32)
+
+        for data_path in data_glob:
             self.data.append(data_path)
-            self.omega.append(1.)
-            data_name = data_path.split('\\')[-1].split('.')[0]
-            target = int(GroundTruth.loc[data_name].index[GroundTruth.loc[data_name]==1].values)
+            
+            data_name = data_path.split('/')[-1].split('.')[0] # if OS not Linux, need change('/')
+            target = int(GroundTruth.loc[data_name][GroundTruth.loc[data_name]==1].index[0])
             self.target.append(target)
 
-    def __getitem__(self,index):
-        data_path = self.data[index]
-        label = self.target[index]
-        omega = self.omega[index]
-        data = Image.open(data_path).convert('RGB')
+    def __getitem__(self, index):
+        img = Image.open(self.data[index]).convert('RGB')
+
         if self.transform is not None:
-            data = self.transform(data)
-        return data, label, omega
+            img = self.transform(img)
+
+        batch = {}
+        batch['img'] = img
+        batch['label'] = torch.tensor(self.target[index])
+        batch['omega'] = self.omega[index]
+        batch['idx'] = torch.tensor(index)
+
+        return batch
 
     def __len__(self):
         return len(self.data)
     
     
 if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    from tqdm import tqdm
     
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
         transforms.ToTensor(),
     ])
     
-    data_train = MNIST_omega(
-            root='./mnist/',
-            train=True,
-            transform=transform,
-            download=True,
-            debug=False
-    )
+    train_data = ISIC2018_Dataset(type='train', transform=transform)
     
-    train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
+    num_of_cls = {}
+    for batch in tqdm(train_data):
+        if not int(batch['label']) in num_of_cls.keys():
+            num_of_cls[int(batch['label'])] = 1
+        else:
+            num_of_cls[int(batch['label'])] += 1
     
-    # train_loader = torch.utils.data.DataLoader(
-    #     dataset=data_train,
-    #     batch_size=32,
-    #     shuffle=True,
-    #     num_workers=8
-    # )
-    
-    for batch in data_train:
-        print('here')
-    
+    labels = list(num_of_cls.keys())
+    frequencies = list(num_of_cls.values())
+
+    # Plotting the histogram
+    plt.bar(labels, frequencies, color='blue', alpha=0.7)
+    plt.xlabel('Class Label')
+    plt.ylabel('Frequency')
+    plt.title('Class Distribution in Training Data')
+    plt.savefig('cls.png')

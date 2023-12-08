@@ -15,7 +15,7 @@ from sklearn.semi_supervised import LabelPropagation
 
 from Model import Network
 from dataset import Pseudo_data, Concat_Pseudo_label_data
-from utils import vis_pseudo_data_images, get_original_dataset
+from utils import vis_pseudo_data_images, get_original_dataset, vis_LP_pseudo_label
 
 
 def Label_Propagation(args, ext_feature, all_label, num_labeled_samples):
@@ -89,6 +89,14 @@ def get_feature_and_label_propagation(args, teacher_model, model_type, labeled_l
         all_label=all_label, 
         num_labeled_samples=num_labeled_samples
     )
+    
+    vis_LP_pseudo_label(
+        data_loader=unlabeled_loader,
+        sample_idx=unlabeled_idx,
+        LP_labels=LP_pseudo_labels,
+        batch_size=5
+    )
+    
     np.save(os.path.join(features_data_path, 'Label_Propagation_features.npy'), LP_pseudo_labels)
     
     del ext_feature, all_label
@@ -150,7 +158,7 @@ def predict(args, model, model_type, test_loader):
     return features, gt_label, pre_soft, data_idx, correct / len(test_loader.dataset)
 
 
-def train_FC(args, epochs, data_loader_train, model, device, save_dir):
+def train_FC(args, data_loader_train, model, device, save_dir):
     
     os.makedirs(save_dir,exist_ok=True)
     
@@ -164,21 +172,21 @@ def train_FC(args, epochs, data_loader_train, model, device, save_dir):
     best_acc = 0.0
     all = []
     
-    for epoch in range(1, epochs + 1):
+    for epoch in range(1, args.FC_epochs + 1):
         running_loss = 0.0
         running_correct = 0
         pbar = tqdm(data_loader_train)
         cnt = 0
         
         for step, data in enumerate(pbar):
-            pbar.set_description(f'[epoch {epoch}/{epochs}]')
+            pbar.set_description(f'[epoch {epoch}/{args.FC_epochs}]')
             X_train, y_train = data
             cnt += len(X_train)
             X_train, y_train = Variable(X_train), Variable(y_train)
             
             X_train = X_train.to(device)
             y_train = y_train.to(device)
-                
+            
             inputs = model(X_train)
             _, pred = torch.max(inputs.data, 1)
             optimizer.zero_grad()
@@ -191,11 +199,11 @@ def train_FC(args, epochs, data_loader_train, model, device, save_dir):
             running_correct += torch.sum(pred == y_train.data)
             pbar.set_postfix(Loss=running_loss.item()/(cnt), correct=running_correct.item() / (cnt))
 
-        args.logger.info(
-            "[epoch {}/{}]Loss is:{:.4f}, Train Accuracy is:{:.4f}%".format(
-                epoch, (epochs), running_loss.item()/len(data_loader_train.dataset), 100 * running_correct.item() / len(data_loader_train.dataset),
-                )
-        )
+        # args.logger.info(
+        #     "[epoch {}/{}]Loss is:{:.4f}, Train Accuracy is:{:.4f}%".format(
+        #         epoch, (args.FC_epochs), running_loss.item()/len(data_loader_train.dataset), 100 * running_correct.item() / len(data_loader_train.dataset),
+        #         )
+        # )
 
         epoch_acc = running_correct.double() / len(data_loader_train.dataset)
         all.append(running_loss.item() / len(data_loader_train.dataset))
@@ -219,7 +227,7 @@ def train_FC(args, epochs, data_loader_train, model, device, save_dir):
     time_since = time.time() - since
     args.logger.info('Training complete in {:.0f}m {:.0f}s'.format(
         time_since // 60, time_since % 60))
-    args.logger.info('Best Acc: {:4f}'.format(best_acc))
+    args.logger.info('Pseudo label prediction model Best Acc: {:4f}'.format(best_acc))
     
     torch.save(model, os.path.join(save_dir, 'last.pt'))
 
@@ -355,7 +363,6 @@ def train(args, iteration, n_epochs, model, data_loader_train, data_loader_val, 
                     )
                 )
 
-        # epoch_acc = running_correct.double()/cnt
         epoch_acc = val_correct / val_cnt
         train_loss_curve.append(train_loss / cnt)
         val_loss_curve.append(val_loss / val_cnt)
@@ -403,7 +410,7 @@ def add_pseudo(args, pre_soft, pre_hard, dataset_type, labeled_data, full_data, 
     unlabeled_data_list = []
     
     if dataset_type == 'MNIST':
-        for i in trange(len(pre_soft), desc='add_pseudo:'):
+        for i in trange(len(pre_soft),total=len(pre_soft), desc='add_pseudo:'):
             batch = full_data[unlabeled_sample_idx[i]]
             
             if max(pre_soft[i]) >= threshold:
@@ -480,7 +487,6 @@ def fine_tune_pretrain_model(args, model, model_fc, train_loader, val_loader, nu
     # train FC
     model_fc = train_FC(
         args=args,
-        epochs=100,
         data_loader_train=fc_input_loader,
         model=model_fc,
         device=args.device,

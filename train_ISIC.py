@@ -2,11 +2,11 @@
 import os
 import torch
 import matplotlib.pyplot as plt
-from torchvision import transforms
+from torchvision import transforms, models
 from torch.utils.data import random_split
 
-from Model import gray_resnet18, Network
-from dataset import MNIST_omega
+from Model import resnet50, FC
+from dataset import ISIC2018_Dataset
 
 from opt import arg_parse
 from utils import get_logger
@@ -33,8 +33,8 @@ def main(args):
         )
     else:
         args.logger.info('Load pre-train model...')
-        teacher_model = torch.load('trained_model/resnet18/pretrain/best.pt')
-        pseudo_label_model = torch.load('trained_model/resnet18/pretrain/FC/best.pt')
+        teacher_model = torch.load(os.path.join(args.save_model_dir, 'pretrain', 'best.pt'))
+        pseudo_label_model = torch.load(os.path.join(args.save_model_dir, 'pretrain', 'FC', 'best.pt'))
 
     student_test_acc = []
     best_acc = 0
@@ -81,6 +81,10 @@ def main(args):
 
 if __name__ == '__main__':
     args = arg_parse()
+    # args.pretrain = False # debug
+    args.dataset_dir = os.path.join('Datasets', 'ISIC2018')
+    args.save_model_dir = os.path.join('trained_model', 'ISIC2018', 'resnet18')
+    args.log_filename = os.path.join('log', 'train_ISIC2018.log')
     
     args.logger = get_logger(args.log_filename)
     args.device = torch.device(f'cuda:{args.devices[0]}' if torch.cuda.is_available() else 'cpu')
@@ -93,25 +97,11 @@ if __name__ == '__main__':
         transforms.ToTensor(),
     ])
 
-    data_train = MNIST_omega(
-        root=args.dataset_dir,
-        train=True,
-        transform=transform,
-        download=True,
-        debug=False
-    )  
-    
-    data_test = MNIST_omega(
-        root=args.dataset_dir,
-        train=False,
-        transform=transform,
-        debug=False
-    )
+    args.num_classes = 7
+    data_train = ISIC2018_Dataset(type='train', transform=transform)
+    train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
 
-    args.num_classes = data_train.get_num_classes()
-
-    train_data, unlabeled_data = random_split(data_train, [0.1, 0.9])
-    val_data = data_test
+    val_data = ISIC2018_Dataset(type='valid', transform=transform)
 
     args.train_loader = torch.utils.data.DataLoader(
         dataset=train_data,
@@ -134,7 +124,7 @@ if __name__ == '__main__':
         num_workers=8
     )
     
-    args.pretrain_model = gray_resnet18(num_classes=args.num_classes).to(args.device)
-    args.model_fc = Network().to(args.device) # used original's FC
+    args.pretrain_model = resnet50(num_classes=args.num_classes).to(args.device)
+    args.model_fc = FC(num_classes=args.num_classes).to(args.device) # used original's FC
     
     main(args)

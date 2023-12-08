@@ -9,13 +9,24 @@ from torchvision.models.resnet import ResNet, BasicBlock, Bottleneck
 import torch
 from torch.nn import functional as F
 from torchvision import models
-from torchvision.models import ResNet18_Weights
 
 class gray_resnet18(nn.Module):
     def __init__(self, num_classes):
         super(gray_resnet18, self).__init__()
-        self.model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
+        self.model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         self.model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=1, padding=3, bias=False)
+        self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+
+    def forward(self, x):
+        x = self.model(x)
+
+        return x
+
+
+class resnet50(nn.Module):
+    def __init__(self, num_classes):
+        super(resnet50, self).__init__()
+        self.model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
 
     def forward(self, x):
@@ -28,12 +39,17 @@ class FC(nn.Module):
     def __init__(self, num_classes):
         super(FC, self).__init__()
         
-        self.fc1 = nn.Linear(num_classes, 10)
-        self.fc2 = nn.Linear(10, int(num_classes / 2))
+        self.fc1 = nn.Linear(num_classes * 2, 64)
+        self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32, num_classes)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
+        x = self.fc1(x)
+        x = self.relu(x)
         x = self.fc2(x)
+        x = self.relu(x)
+        x = self.fc3(x)
         
         return x
 
