@@ -4,12 +4,12 @@ import logging
 import random
 import numpy as np
 from dataset import Pseudo_data
-from torchvision.utils import make_grid
-import torchvision.transforms.functional as TF
+
+from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 
-def get_logger(log_filename='log/Med_SelfTraining.log'):
+def get_logger(log_filename='Med_SelfTraining'):
     os.environ['KMP_DUPLICATE_LIB_OK']='True'
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -21,10 +21,14 @@ def get_logger(log_filename='log/Med_SelfTraining.log'):
     ch.setLevel(logging.DEBUG)
     ch.setFormatter(formatter)
     
-    log_dir = os.path.dirname(log_filename)
+    current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename_with_timestamp = os.path.join('log', f'{log_filename}_{current_datetime}.log')
+
+    log_dir = os.path.dirname(filename_with_timestamp)
+    
     os.makedirs(log_dir, exist_ok=True)
         
-    fh = logging.FileHandler(log_filename)
+    fh = logging.FileHandler(filename_with_timestamp)
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(formatter)
     logging.getLogger('matplotlib.font_manager').disabled = True
@@ -41,11 +45,13 @@ def get_original_dataset(dataset):
     return dataset
 
 
-def vis_pseudo_data_images(pseudo_data_loader, vis_batch_num, log_dir='.'):
+def vis_pseudo_data_images(pseudo_data_loader, vis_batch_num, log_dir='.', log_filename='FC_result.tfevents'):
     os.makedirs(log_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename=f'{timestamp}_{log_filename}'
     
     # 創建 SummaryWriter
-    writer = SummaryWriter(log_dir)
+    writer = SummaryWriter(os.path.join(log_dir, log_filename))
 
     # 獲取指定批次數據
     for batch_idx, batch_data in enumerate(pseudo_data_loader):
@@ -90,7 +96,8 @@ def vis_LP_pseudo_label(data_loader, sample_idx, LP_labels, batch_size, one_hot=
     vis_pseudo_data_images(
         torch.utils.data.DataLoader(pseudo_data, batch_size=batch_size),
         vis_batch_num=5, 
-        log_dir=os.path.join('log', 'pseudo_labels')
+        log_dir=os.path.join('log', 'pseudo_labels'),
+        log_filename='LP_result.tfevents'
     )
 
     return 0

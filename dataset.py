@@ -120,6 +120,9 @@ class ISIC2018_Dataset(Dataset):
         elif type=='valid':
             data_glob = glob.glob(os.path.join(data_dir, 'ISIC2018_Task3_Validation_Input', '*.jpg'))
             GroundTruth = pd.read_csv(os.path.join(data_dir, 'ISIC2018_Task3_Validation_GroundTruth', 'ISIC2018_Task3_Validation_GroundTruth.csv'), index_col='image')
+        elif type=='test':
+            data_glob = glob.glob(os.path.join(data_dir, 'ISIC2018_Task3_Test_Input', '*.jpg'))
+            GroundTruth = pd.read_csv(os.path.join(data_dir, 'ISIC2018_Task3_Test_GroundTruth', 'ISIC2018_Task3_Test_GroundTruth.csv'), index_col='image')
 
         GroundTruth.columns = ['0','1','2','3','4','5','6']
         self.omega = torch.tensor([1.] * len(data_glob), dtype=torch.float32)
