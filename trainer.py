@@ -6,6 +6,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import random_split
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm, trange
@@ -141,14 +142,12 @@ def predict(args, model, model_type, test_loader):
             imgs, labels = batch['img'].to(args.device), batch['label'].to(args.device)
 
             out = model(imgs)
-            predict_softmax = F.softmax(out, dim=1)
-    
             _, pre = torch.max(out.data, 1)
             
             correct += (pre == labels).sum().item()
             
             gt_label[batch_start : batch_end, ...] = labels.cpu()
-            pre_soft[batch_start : batch_end, ...] = predict_softmax.cpu()
+            pre_soft[batch_start : batch_end, ...] = out.cpu()
             data_idx[batch_start : batch_end] = batch['idx']
             batch_start += args.batch_size
         
@@ -187,11 +186,11 @@ def train_FC(args, data_loader_train, model, device, save_dir):
             X_train = X_train.to(device)
             y_train = y_train.to(device)
             
-            inputs = model(X_train)
-            _, pred = torch.max(inputs.data, 1)
+            outputs = model(X_train)
+            _, pred = torch.max(outputs.data, 1)
             optimizer.zero_grad()
             
-            loss = cost(inputs, y_train)
+            loss = cost(outputs, y_train)
             
             loss.backward()
             optimizer.step()
@@ -256,15 +255,12 @@ def test_FC(args, data_loader, model_fc):
             labels = labels.to(args.device)
             
             out = model_fc(imgs)
-            
-            predict_softmax = F.softmax(out, dim=1)
-        
             _, pre = torch.max(out.data, 1)
             
             total += labels.size(0)
             correct += (pre == labels).sum().item()
             pre_hard.append(pre.cpu())
-            pre_soft.append(predict_softmax.cpu())
+            pre_soft.append(out.cpu())
             
         args.logger.info('pesudo label predict model Accuracy: {}'.format(correct / total))
 
@@ -457,18 +453,21 @@ def fine_tune_pretrain_model(args, model, model_fc, train_loader, val_loader, nu
     Criterion = Criterion.to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), 0.001)
 
-    teacher_model, teacher_acc = train(
-        args=args,
-        iteration=0,
-        n_epochs=epochs,
-        model=model,
-        data_loader_train=train_loader,
-        data_loader_val=val_loader,
-        num_classes=num_classes,
-        optimizer=optimizer,
-        Criterion=Criterion,
-        save_dir=saved_dir
-    )
+    if args.debug:
+        teacher_model = torch.load('trained_model/ISIC2018/resnet18/pretrain/best.pt')
+    else:
+        teacher_model, teacher_acc = train(
+            args=args,
+            iteration=0,
+            n_epochs=epochs,
+            model=model,
+            data_loader_train=train_loader,
+            data_loader_val=val_loader,
+            num_classes=num_classes,
+            optimizer=optimizer,
+            Criterion=Criterion,
+            save_dir=saved_dir
+        )
 
     args.logger.info(f'fine-tune pre-train model finished, save parameter at {saved_dir}')
 
@@ -476,12 +475,30 @@ def fine_tune_pretrain_model(args, model, model_fc, train_loader, val_loader, nu
     args.logger.info('train pseudo label predict model(FC)...')
     model_fc.train()
 
+    # split train data into label and unlabel data
+    fc_dataset = train_loader.dataset
+    fc_labeled_data, fc_unlabeled_data = random_split(fc_dataset, [0.5, 0.5])
+    
+    fc_labeled_loader = torch.utils.data.DataLoader(
+        dataset=fc_labeled_data,
+        batch_size=args.batch_size,
+        shuffle=args.shuffle,
+        num_workers=8
+    )
+    
+    fc_unlabeled_loader = torch.utils.data.DataLoader(
+        dataset=fc_unlabeled_data,
+        batch_size=args.batch_size,
+        shuffle=args.shuffle,
+        num_workers=8
+    )
+    
     fc_input_loader, unlabeled_sample_idx = get_feature_and_label_propagation(
         args=args,
         teacher_model=teacher_model,
         model_type=args.model_type,
-        labeled_loader=train_loader,
-        unlabeled_loader=val_loader
+        labeled_loader=fc_labeled_loader,
+        unlabeled_loader=fc_unlabeled_loader
     )
     
     # train FC
@@ -570,7 +587,7 @@ def main(args):
         pseudo_label_model = torch.load(os.path.join(args.save_model_dir, 'pretrain', 'FC', 'best.pt'))
 
     student_test_acc = []
-    best_acc = 0
+    best_acc, best_iter = 0, 0
     
     # Self Training pipeline
     for iteration in range(1, args.max_self_training_iteration + 1):
@@ -592,8 +609,8 @@ def main(args):
         student_test_acc.append(student_acc)
         
         if student_acc > best_acc:
-            best_acc = student_acc
-            torch.save(student_model, os.path.join(args.save_model_dir, f'best_student_cycle_{iteration}.pt'))
+            best_acc, best_iter = student_acc, iteration
+            torch.save(student_model, os.path.join(args.save_model_dir, 'best.pt'))
         
         # stop self-training if no unlabeled data
         if len(args.unlabeled_loader.dataset) == 0:
@@ -603,7 +620,7 @@ def main(args):
             teacher_model = student_model
 
     # plt self-training test curve
-    args.logger.info(f'Self-training completed, best student acc: {best_acc}')
+    args.logger.info(f'Self-training completed, best student saved in iteration: {best_iter}, acc: {best_acc}')
     plt.figure(figsize=(7, 7), dpi=200)
     plt.plot(student_test_acc, 'b-o', label='test_curve')
     plt.title("test acc Curve")

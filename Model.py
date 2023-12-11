@@ -36,13 +36,14 @@ class resnet50(nn.Module):
 
 
 class FC(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, dropout_prob=0.5):
         super(FC, self).__init__()
         
         self.fc1 = nn.Linear(num_classes * 2, 64)
         self.fc2 = nn.Linear(64, 32)
         self.fc3 = nn.Linear(32, num_classes)
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(p=dropout_prob)
 
     def forward(self, x):
         x = self.fc1(x)
@@ -50,6 +51,7 @@ class FC(nn.Module):
         x = self.fc2(x)
         x = self.relu(x)
         x = self.fc3(x)
+        x = F.softmax(x, dim=1)
         
         return x
 

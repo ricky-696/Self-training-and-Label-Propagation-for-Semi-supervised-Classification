@@ -15,9 +15,12 @@ from utils import get_logger
 
 if __name__ == '__main__':
     args = arg_parse()
-    # args.pretrain = False # debug
+    # debug
+    # args.pretrain = False
+    # args.debug = True
+    
     args.dataset_dir = os.path.join('Datasets', 'ISIC2018')
-    args.save_model_dir = os.path.join('trained_model', 'ISIC2018', 'resnet18')
+    args.save_model_dir = os.path.join('trained_model', 'ISIC2018', 'resnet50')
     args.log_filename = 'train_ISIC2018'
     
     args.logger = get_logger(args.log_filename)
