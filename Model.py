@@ -1,14 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Sat May 22 15:11:41 2021
-
-@author: b3171154
-"""
-import torch.nn as nn 
-from torchvision.models.resnet import ResNet, BasicBlock, Bottleneck
 import torch
-from torch.nn import functional as F
+import torch.nn as nn 
 from torchvision import models
+from torch.nn import functional as F
 
 class gray_resnet18(nn.Module):
     def __init__(self, num_classes):
@@ -23,10 +17,14 @@ class gray_resnet18(nn.Module):
         return x
 
 
-class resnet50(nn.Module):
-    def __init__(self, num_classes):
-        super(resnet50, self).__init__()
-        self.model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+class resnet18(nn.Module):
+    def __init__(self, num_classes, pretrain=True):
+        super(resnet18, self).__init__()
+        if pretrain:
+            self.model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        else:
+            self.model = models.resnet18()
+
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
 
     def forward(self, x):
@@ -35,9 +33,25 @@ class resnet50(nn.Module):
         return x
 
 
-class FC(nn.Module):
+class resnet50(nn.Module):
+    def __init__(self, num_classes, pretrain=True):
+        super(resnet50, self).__init__()
+        if pretrain:
+            self.model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+        else:
+            self.model = models.resnet50()
+
+        self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+
+    def forward(self, x):
+        x = self.model(x)
+
+        return x
+
+
+class FC_3layer(nn.Module):
     def __init__(self, num_classes, dropout_prob=0.5):
-        super(FC, self).__init__()
+        super(FC_3layer, self).__init__()
         
         self.fc1 = nn.Linear(num_classes * 2, 64)
         self.fc2 = nn.Linear(64, 32)
@@ -55,6 +69,41 @@ class FC(nn.Module):
         
         return x
 
+
+class FC_2layer(nn.Module):
+    def __init__(self, num_classes, dropout_prob=0.5):
+        super(FC_2layer, self).__init__()
+        
+        self.fc1 = nn.Linear(num_classes * 2, 32)
+        self.fc2 = nn.Linear(32, num_classes)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(p=dropout_prob)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = F.softmax(x, dim=1)
+        
+        return x
+
+
+class FC_1layer(nn.Module):
+    def __init__(self, num_classes, dropout_prob=0.5):
+        super(FC_1layer, self).__init__()
+        
+        self.fc1 = nn.Linear(num_classes * 2, num_classes)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(p=dropout_prob)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = F.softmax(x, dim=1)
+        
+        return x
+
+
 class Network(nn.Module):
     def __init__(self):
         super(Network, self).__init__()
@@ -66,59 +115,69 @@ class Network(nn.Module):
         out = self.fc1(x)
         out = self.relu(out)
         out = self.fc2(out)
+        out = F.softmax(out, dim=1)
+
         return out
 
 
-class MNISTResNet(ResNet):
-    def __init__(self):
-        super(MNISTResNet, self).__init__(BasicBlock, [2, 2, 2, 2], num_classes=10) # Based on ResNet18
-        # super(MNISTResNet, self).__init__(BasicBlock, [3, 4, 6, 3], num_classes=10) # Based on ResNet34
-        # super(MNISTResNet, self).__init__(Bottleneck, [3, 4, 6, 3], num_classes=10) # Based on ResNet50
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=1, padding=3,bias=False)
+class Avg_Label(nn.Module):
+    def __init__(self, num_classes):
+        super(Avg_Label, self).__init__()
+        self.num_classes = num_classes
 
-        
-class Flatten(nn.Module):
-    def __init__(self):
-        super(Flatten,self).__init__()
-
-    def forward(self,x):
-        shape = torch.prod(torch.tensor(x.shape[1:])).item()
-        return x.reshape(-1,shape)
-    
-
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv = nn.Conv2d(1, 3, kernel_size=1)
-        self.resnet = models.resnet18(pretrained=True)
- 
     def forward(self, x):
- 
-        x = self.conv(x)
-        x = self.resnet(x)
+        x1, x2 = x.split(self.num_classes, dim=1)
+        avg_probs = (x1 + x2) / 2.0
+        avg_probs = F.softmax(avg_probs, dim=1)
 
-        return x
-
-def MNISTVGG():
-
-    model = nn.Sequential(
-        nn.Conv2d(1, 64, kernel_size=(1, 1), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        nn.MaxPool2d(kernel_size=2, stride=1, padding=0, dilation=1, ceil_mode=False),
-        nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        nn.MaxPool2d(kernel_size=2, stride=1, padding=0, dilation=1, ceil_mode=False),
-        nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-        nn.AdaptiveAvgPool2d(output_size=(7, 7)),
-        Flatten(),
-        nn.Linear(in_features=25088, out_features=4096, bias=True),
-        nn.Linear(in_features=4096, out_features=10, bias=True)
-    )
+        return avg_probs
     
-    return model
+
+class Same_Label(nn.Module):
+    def __init__(self, num_classes):
+        super(Same_Label, self).__init__()
+        self.num_classes = num_classes
+
+    def forward(self, x):
+        x1, x2 = x.split(self.num_classes, dim=1)
+
+        argmax_x1 = torch.argmax(x1, dim=1)
+        argmax_x2 = torch.argmax(x2, dim=1)
+
+        condition = argmax_x1 == argmax_x2
+
+        # 使用torch.where选择输出值
+        pseudo_labels = torch.where(
+            condition.unsqueeze(1),
+            F.softmax((x1 + x2) / 2.0, dim=1),
+            torch.zeros((x.size(0), self.num_classes)).to('cuda:1')
+        )
+
+        return pseudo_labels
+
+
+if __name__ == '__main__':
+    # 创建测试输入数据
+    num_classes = 7
+    input_size = [32, 14]
+
+    # 创建符合条件的例子
+    condition_true_example = torch.randn(input_size).to('cuda:1')
+    argmax_true = torch.randint(0, num_classes, (input_size[0],))
+
+    # 设置x1和x2，使得argmax_x1等于argmax_x2
+    condition_true_example[:, :num_classes] = F.one_hot(argmax_true, num_classes=num_classes).float()
+    condition_true_example[:, num_classes:] = condition_true_example[:, :num_classes]
+
+    # 创建不符合条件的例子
+    condition_false_example = torch.randn(input_size).to('cuda:1')
+    argmax_false_x1 = torch.randint(0, num_classes, (input_size[0],))
+    argmax_false_x2 = torch.randint(0, num_classes, (input_size[0],))
+
+    # 设置x1和x2，使得argmax_x1不等于argmax_x2
+    condition_false_example[:, :num_classes] = F.one_hot(argmax_false_x1, num_classes=num_classes).float()
+    condition_false_example[:, num_classes:] = F.one_hot(argmax_false_x2, num_classes=num_classes).float()
+
+    model = Same_Label(num_classes=7).to('cuda:1')
+
+    out = model(condition_true_example + condition_false_example)

@@ -18,6 +18,7 @@ def arg_parse():
     
     # train
     parser.add_argument('--pretrain', type=bool, default=True, help='If your model need pretrain, set True')
+    parser.add_argument('--pueudo_label_pred_model', type=str, default='avg', help='pueudo_label_pred_model type: FC or avg')
     parser.add_argument('--model_type', type=str, default='resnet', help='backbone model_type')
     parser.add_argument('--batch_size', type=int, default=32, help='batch_size')
     parser.add_argument('--teacher_epochs', type=int, default=10, help='epochs of finetune pretrain model')

@@ -14,7 +14,7 @@ If You Want Custom Datset, __getitem__() need return a dict 'batch':
 batch include following data: (All dtype need to be tensor)
     batch['img'] = Your image (dtype: torch.float32)
     batch['label'] = Your label (dtype: torch.int64)
-    batch['omega'] = class weights (dtype: torch.float32)
+    batch['omega'] = Confidence Parameter (dtype: torch.float32)
     batch['idx'] = torch.tensor(dtype: torch.int64)
 """
 
@@ -88,7 +88,7 @@ class Concat_Pseudo_label_data(Dataset):
         self.label = y
 
     def __getitem__(self,index):
-        return self.data[index],self.label[index]
+        return self.data[index], self.label[index]
 
     def __len__(self):
         return len(self.data)

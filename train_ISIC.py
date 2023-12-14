@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 import os
 import torch
-import matplotlib.pyplot as plt
-from torchvision import transforms, models
+from torchvision import transforms
 from torch.utils.data import random_split
 
-from Model import resnet50, FC
+from Model import resnet18, Avg_Label, Same_Label
 from dataset import ISIC2018_Dataset
 
 import trainer
@@ -15,12 +14,13 @@ from utils import get_logger
 
 if __name__ == '__main__':
     args = arg_parse()
+
     # debug
     # args.pretrain = False
     # args.debug = True
     
     args.dataset_dir = os.path.join('Datasets', 'ISIC2018')
-    args.save_model_dir = os.path.join('trained_model', 'ISIC2018', 'resnet50')
+    args.save_model_dir = os.path.join('trained_model', 'ISIC2018', 'resnet18')
     args.log_filename = 'train_ISIC2018'
     
     args.logger = get_logger(args.log_filename)
@@ -61,7 +61,6 @@ if __name__ == '__main__':
         num_workers=8
     )
     
-    args.pretrain_model = resnet50(num_classes=args.num_classes).to(args.device)
-    args.model_fc = FC(num_classes=args.num_classes).to(args.device) # used original's FC
-    
+    args.pretrain_model = resnet18(num_classes=args.num_classes).to(args.device)
+    args.model_fc = Same_Label(num_classes=args.num_classes).to(args.device)
     trainer.main(args)
