@@ -348,7 +348,7 @@ def train(args, iteration, n_epochs, model, data_loader_train, data_loader_val, 
         
         args.logger.info("[epoch {}/{}]Train Loss is:{:.8f},valid Loss is:{:.8f}, Train Accuracy is:{:.4f}%, valid Accuracy is:{:.4f}%"
                 .format(epoch,(n_epochs),
-                    train_loss / cnt,
+                    train_loss / (step + 1),
                     val_loss / val_cnt,
                     100 * running_correct / cnt,
                     100 * val_correct / val_cnt,
@@ -450,7 +450,7 @@ def fine_tune_pretrain_model(args, model, model_fc, train_loader, val_loader, nu
     optimizer = torch.optim.Adam(model.parameters(), 0.001)
 
     if args.debug:
-        teacher_model = torch.load('trained_model/ISIC2018/resnet18/pretrain/best.pt')
+        teacher_model = torch.load('trained_model/ISIC2018/resnet18_pretrain_best64_68.pt')
     else:
         teacher_model, teacher_acc = train(
             args=args,

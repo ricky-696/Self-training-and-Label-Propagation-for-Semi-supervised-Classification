@@ -7,10 +7,10 @@ from opt import arg_parse
 if __name__ == '__main__':
     args = arg_parse()
     args.num_classes = 7
-    args.device = torch.device('cpu')
-    # args.device = torch.device('cuda:1')
+    # args.device = torch.device('cpu')
+    args.device = torch.device('cuda:1')
     args.batch_size = 16
-    args.test_model_dir = 'trained_model/ISIC2018/resnet18/pretrain/best.pt'
+    args.test_model_dir = 'trained_model/ISIC2018/resnet18/student_cycle_5/best.pt'
     model = torch.load(args.test_model_dir).to(args.device)
 
     test_loader = torch.utils.data.DataLoader(

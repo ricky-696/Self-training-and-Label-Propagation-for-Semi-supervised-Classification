@@ -63,8 +63,8 @@ if __name__ == '__main__':
     
     args.pretrain_model = resnet18(num_classes=args.num_classes).to(args.device)
     
-    args.pueudo_label_pred_model = 'FC'
-    args.model_fc = FC_3layer(num_classes=args.num_classes).to(args.device)
+    # args.pueudo_label_pred_model = 'FC'
+    # args.model_fc = FC_3layer(num_classes=args.num_classes).to(args.device)
     
-    # args.model_fc = Avg_Label(num_classes=args.num_classes).to(args.device)
+    args.model_fc = Avg_Label(num_classes=args.num_classes).to(args.device)
     trainer.main(args)
