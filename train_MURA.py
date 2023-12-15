@@ -4,7 +4,8 @@ import torch
 from torchvision import transforms
 from torch.utils.data import random_split
 
-from Model import resnet18, Avg_Label, Same_Label, FC_3layer
+from Model import Avg_Label
+from DenseNet_MURA_PyTorch.densenet import densenet169
 from dataset import ISIC2018_Dataset
 
 import trainer
