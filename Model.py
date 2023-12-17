@@ -49,6 +49,16 @@ class resnet50(nn.Module):
         return x
 
 
+class DenseNet169_BC(nn.Module):
+    def __init__(self, num_classes=2):
+        super(DenseNet169_BC, self).__init__()
+        self.densenet = models.densenet169(weights=models.DenseNet169_Weights.DEFAULT)
+        self.densenet.classifier = nn.Linear(1664, num_classes)
+
+    def forward(self, x):
+        return self.densenet(x)
+
+
 class FC_3layer(nn.Module):
     def __init__(self, num_classes, dropout_prob=0.5):
         super(FC_3layer, self).__init__()

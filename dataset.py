@@ -150,32 +150,55 @@ class ISIC2018_Dataset(Dataset):
 
     def __len__(self):
         return len(self.data)
-    
-    
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    from tqdm import tqdm
-    
-    transform = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-    ])
-    
-    train_data = ISIC2018_Dataset(type='train', transform=transform)
-    
-    num_of_cls = {}
-    for batch in tqdm(train_data):
-        if not int(batch['label']) in num_of_cls.keys():
-            num_of_cls[int(batch['label'])] = 1
-        else:
-            num_of_cls[int(batch['label'])] += 1
-    
-    labels = list(num_of_cls.keys())
-    frequencies = list(num_of_cls.values())
 
-    # Plotting the histogram
-    plt.bar(labels, frequencies, color='blue', alpha=0.7)
-    plt.xlabel('Class Label')
-    plt.ylabel('Frequency')
-    plt.title('Class Distribution in Training Data')
-    plt.savefig('cls.png')
+
+class MURAv1_1(Dataset):
+    def __init__(
+            self, 
+            type='train', study_type='XR_ELBOW', data_dir=os.path.join('Datasets', 'MURA-v1.1'),
+            transform=transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+            ])
+        ):
+
+        label_id = {'negative': 0, 'positive': 1}
+        self.data_dir = os.path.join(data_dir, type, study_type)  
+        self.transform = transform
+
+        self.data = []
+        for p_id in os.listdir(self.data_dir):
+            p_path = glob.glob(os.path.join(self.data_dir, p_id, '*'))
+            label = label_id[p_path[0].split('/')[-1].split('_')[-1]]
+            
+            for img_path in glob.glob(os.path.join(p_path[0], '*.png')):
+                data_entry = {
+                    'p_id': p_id,
+                    'label': label,
+                    'img_path': img_path,
+                }
+                
+                self.data.append(data_entry)
+
+        self.omega = torch.tensor([1.] * len(self.data), dtype=torch.float32)
+
+    def __getitem__(self, index):
+        
+        batch = {}
+        batch['img'] = self.transform(Image.open(self.data[index]['img_path']).convert('RGB'))
+        batch['label'] = torch.tensor(self.data[index]['label'])
+        batch['omega'] = self.omega[index]
+        batch['idx'] = torch.tensor(index)
+
+        return batch
+    
+    def __len__(self):
+        return len(self.data)
+
+
+if __name__ == '__main__':
+    train_data = MURAv1_1(type='train')
+
+    for batch in train_data:
+        print(batch)
+

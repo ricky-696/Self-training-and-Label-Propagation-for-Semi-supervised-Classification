@@ -92,12 +92,13 @@ def get_feature_and_label_propagation(args, teacher_model, model_type, labeled_l
         num_labeled_samples=num_labeled_samples
     )
     
-    vis_LP_pseudo_label(
-        data_loader=unlabeled_loader,
-        sample_idx=unlabeled_idx,
-        LP_labels=LP_pseudo_labels,
-        batch_size=5
-    )
+    if args.vis_pseudo:
+        vis_LP_pseudo_label(
+            data_loader=unlabeled_loader,
+            sample_idx=unlabeled_idx,
+            LP_labels=LP_pseudo_labels,
+            batch_size=5
+        )
     
     np.save(os.path.join(features_data_path, 'Label_Propagation_features.npy'), LP_pseudo_labels)
     
@@ -137,16 +138,23 @@ def predict(args, model, model_type, test_loader):
         # need to rewrite feature extract for different models
         if model_type == 'resnet':
             handle = model.model.fc.register_forward_pre_hook(hook)
+        elif model_type == 'densenet':
+            handle = model.densenet.classifier.register_forward_pre_hook(hook)
             
         for batch in pbar:
             
             imgs, labels = batch['img'].to(args.device), batch['label'].to(args.device)
 
             out = model(imgs)
-            _, pre = torch.max(out.data, 1)
+            if args.binary_cls:
+                out = out.squeeze(dim=1)
+                pre = (out.data > 0.5).type(torch.cuda.FloatTensor)
+            else:            
+                _, pre = torch.max(out.data, 1)
             
             correct += (pre == labels).sum().item()
             
+            # ToDo: fix binary pre_soft
             gt_label[batch_start : batch_end, ...] = labels.cpu()
             pre_soft[batch_start : batch_end, ...] = out.cpu()
             data_idx[batch_start : batch_end] = batch['idx']
@@ -266,8 +274,7 @@ def train(args, iteration, n_epochs, model, data_loader_train, data_loader_val, 
 
     img_dir = 'pic'
     os.makedirs(img_dir, exist_ok=True)
-
-    model.train()
+    
     since = time.time()
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
@@ -288,13 +295,14 @@ def train(args, iteration, n_epochs, model, data_loader_train, data_loader_val, 
     num_cls_data = torch.tensor(num_cls_data)
 
     for epoch in range(1, n_epochs + 1):
+        
+        model.train()
         train_loss = 0.0
         running_correct = 0
         cnt = 0
-        step = 0
         pbar_train = tqdm(data_loader_train)
         
-        for step, data in enumerate(pbar_train):
+        for train_step, data in enumerate(pbar_train):
             pbar_train.set_description(f'[epoch {epoch}/{n_epochs}][train]')
 
             X_train, label, omega = data['img'], data['label'], data['omega']
@@ -304,13 +312,20 @@ def train(args, iteration, n_epochs, model, data_loader_train, data_loader_val, 
             
             X_train = X_train.to(args.device)
             y_train = y_train.to(args.device)
+            
             omega = omega.to(args.device)
             z = torch.index_select(num_cls_data, 0, label).to(args.device)
 
             outputs = model(X_train)
-            _, pred = torch.max(outputs.data, 1)
             optimizer.zero_grad()
 
+            if args.binary_cls:
+                outputs = outputs.squeeze(dim=1)
+                y_train = y_train.float()
+                pred = (outputs.data > 0.5).type(torch.cuda.FloatTensor)
+            else:
+                _, pred = torch.max(outputs.data, 1)
+            
             if iteration == 0:
                 loss = Criterion(outputs, y_train).mean()
             else:
@@ -322,34 +337,48 @@ def train(args, iteration, n_epochs, model, data_loader_train, data_loader_val, 
             running_correct += torch.sum(pred == y_train.data).item()
 
             pbar_train.set_postfix(
-                Loss=train_loss / (step + 1),
+                Loss=train_loss / (train_step + 1),
                 correct=running_correct / cnt
             )
 
+        # valid
+        torch.cuda.empty_cache()
+        model.eval()
         val_loss = 0.0
         val_correct = 0
         val_cnt = 0
         pbar_val = tqdm(data_loader_val)
 
-        for data in pbar_val:
-            pbar_val.set_description(f'[epoch {epoch}/{n_epochs}][val]')
-            X_val, y_val = data['img'], data['label']
+        with torch.no_grad():
+            for val_step, data in enumerate(pbar_val):
+                pbar_val.set_description(f'[epoch {epoch}/{n_epochs}][val]')
+                X_val, y_val = data['img'], data['label']
 
-            val_cnt += len(X_val)
-            X_val, y_val = Variable(X_val), Variable(y_val)
-            X_val = X_val.to(args.device)
-            y_val = y_val.to(args.device)
-            outputs = model(X_val)
-            _, pred = torch.max(outputs.data, 1)
-            loss = Criterion(outputs, y_val).mean()
-            val_loss += loss.item()
-            val_correct += torch.sum(pred == y_val.data).item()
-            pbar_val.set_postfix(Loss=val_loss / val_cnt, correct=val_correct / val_cnt)
+                val_cnt += len(X_val)
+                X_val, y_val = Variable(X_val), Variable(y_val)
+                X_val = X_val.to(args.device)
+                y_val = y_val.to(args.device)
+                outputs = model(X_val)
+                
+                if args.binary_cls:
+                    outputs = outputs.squeeze(dim=1)
+                    y_val = y_val.float()
+                    pred = (outputs.data > 0.5).type(torch.cuda.FloatTensor)
+                else:
+                    _, pred = torch.max(outputs.data, 1)
+                
+                loss = Criterion(outputs, y_val).mean()
+                val_loss += loss.item()
+                val_correct += torch.sum(pred == y_val.data).item()
+                pbar_val.set_postfix(Loss=val_loss / (val_step + 1), correct=val_correct / val_cnt)
         
+        if hasattr(args, 'scheduler'):
+            args.scheduler.step(val_loss / (val_step + 1))
+
         args.logger.info("[epoch {}/{}]Train Loss is:{:.8f},valid Loss is:{:.8f}, Train Accuracy is:{:.4f}%, valid Accuracy is:{:.4f}%"
                 .format(epoch,(n_epochs),
-                    train_loss / (step + 1),
-                    val_loss / val_cnt,
+                    train_loss / (train_step + 1),
+                    val_loss / (val_step + 1),
                     100 * running_correct / cnt,
                     100 * val_correct / val_cnt,
                     )
@@ -414,11 +443,13 @@ def add_pseudo(args, pre_soft, pre_hard, dataset_type, labeled_data, full_data, 
                 
         # create new data
         pseudo_data = Pseudo_data(pseudo_data_list)
-        vis_pseudo_data_images(
-            torch.utils.data.DataLoader(pseudo_data, batch_size=args.batch_size),
-            vis_batch_num=5, 
-            log_dir=os.path.join('log', 'pseudo_labels')
-        )
+
+        if args.vis_pseudo:
+            vis_pseudo_data_images(
+                torch.utils.data.DataLoader(pseudo_data, batch_size=args.batch_size),
+                vis_batch_num=5, 
+                log_dir=os.path.join('log', 'pseudo_labels')
+            )
         
         new_train_data = labeled_data + pseudo_data # return: ConcatDataset
         new_train_loader = torch.utils.data.DataLoader(
@@ -443,12 +474,6 @@ def add_pseudo(args, pre_soft, pre_hard, dataset_type, labeled_data, full_data, 
 
 def fine_tune_pretrain_model(args, model, model_fc, train_loader, val_loader, num_classes, saved_dir, epochs=10):
 
-    # pretrain teacher model
-    model = model.to(args.device)
-    Criterion = nn.CrossEntropyLoss(reduction='none')
-    Criterion = Criterion.to(args.device)
-    optimizer = torch.optim.Adam(model.parameters(), 0.001)
-
     if args.debug:
         teacher_model = torch.load('trained_model/ISIC2018/resnet18_pretrain_best64_68.pt')
     else:
@@ -460,8 +485,8 @@ def fine_tune_pretrain_model(args, model, model_fc, train_loader, val_loader, nu
             data_loader_train=train_loader,
             data_loader_val=val_loader,
             num_classes=num_classes,
-            optimizer=optimizer,
-            Criterion=Criterion,
+            optimizer=args.optimizer,
+            Criterion=args.criterion,
             save_dir=saved_dir
         )
 
@@ -512,11 +537,6 @@ def fine_tune_pretrain_model(args, model, model_fc, train_loader, val_loader, nu
 
 def self_training_cycle(args, iteration, teacher_model, pseudo_label_model, train_loader, val_loader, unlabeled_loader, num_classes, save_model_dir):
 
-    teacher_model = teacher_model.to(args.device)
-
-    Criterion = nn.CrossEntropyLoss(reduction='none').to(args.device)
-    optimizer = torch.optim.Adam(teacher_model.parameters(), 0.001)
-
     fc_input_loader, unlabeled_sample_idx = get_feature_and_label_propagation(
         args=args,
         teacher_model=teacher_model,
@@ -552,8 +572,8 @@ def self_training_cycle(args, iteration, teacher_model, pseudo_label_model, trai
         data_loader_train=train_loader,
         data_loader_val=val_loader,
         num_classes=num_classes,
-        optimizer=optimizer,
-        Criterion=Criterion,
+        optimizer=args.optimizer,
+        Criterion=args.criterion,
         save_dir=os.path.join(save_model_dir, f'student_cycle_{iteration}')
     )
 

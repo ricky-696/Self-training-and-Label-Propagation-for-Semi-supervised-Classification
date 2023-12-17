@@ -13,10 +13,12 @@ def arg_parse():
     parser.add_argument('--test_model_dir', type=str, default='trained_model/ISIC2018/resnet18/best.pt', help='test_model_dir')
     parser.add_argument('--log_filename', type=str, default='MNIST_SelfTraining', help='log_filename')
     
-    # dataloader
+    # dataloader & Visualization
     parser.add_argument('--shuffle', type=bool, default=True, help='shuffle dataset')
-    
+    parser.add_argument('--vis_pseudo', type=bool, default=False, help='If your want to visualize your pseudo label, set True')
+
     # train
+    parser.add_argument('--binary_cls', type=bool, default=False, help='If your task is binary classification, set True')
     parser.add_argument('--pretrain', type=bool, default=True, help='If your model need pretrain, set True')
     parser.add_argument('--pueudo_label_pred_model', type=str, default='avg', help='pueudo_label_pred_model type: FC or avg')
     parser.add_argument('--model_type', type=str, default='resnet', help='backbone model_type')

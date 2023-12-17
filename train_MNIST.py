@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import torch
-import matplotlib.pyplot as plt
+import torch.nn as nn
 from torchvision import transforms
 from torch.utils.data import random_split
 
@@ -71,4 +71,6 @@ if __name__ == '__main__':
     args.pretrain_model = gray_resnet18(num_classes=args.num_classes).to(args.device)
     args.model_fc = Network().to(args.device) # used original's FC
     
+    args.criterion = nn.CrossEntropyLoss(reduction='none').to(args.device)
+    args.optimizer = torch.optim.Adam(args.pretrain_model.parameters(), 0.001)
     trainer.main(args)

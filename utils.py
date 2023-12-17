@@ -10,6 +10,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 def get_logger(log_filename='Med_SelfTraining'):
+    
+    # clean the PIL's log
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    
     os.environ['KMP_DUPLICATE_LIB_OK']='True'
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)

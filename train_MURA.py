@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 import os
 import torch
+import torch.nn as nn
 from torchvision import transforms
 from torch.utils.data import random_split
 
-from Model import Avg_Label
-from DenseNet_MURA_PyTorch.densenet import densenet169
-from dataset import ISIC2018_Dataset
+from Model import Same_Label, DenseNet169_BC
+from dataset import MURAv1_1
+# from DenseNet_MURA_PyTorch.densenet import densenet169
 
 import trainer
 from opt import arg_parse
@@ -18,54 +19,74 @@ if __name__ == '__main__':
 
     # debug
     # args.pretrain = False
-    args.debug = True
-    
-    args.dataset_dir = os.path.join('Datasets', 'ISIC2018')
-    args.save_model_dir = os.path.join('trained_model', 'ISIC2018', 'resnet18')
-    args.log_filename = 'train_ISIC2018'
-    
-    args.logger = get_logger(args.log_filename)
-    args.device = torch.device(f'cuda:{args.devices[0]}' if torch.cuda.is_available() else 'cpu')
-    args.logger.info(f'Start batch size: {args.batch_size}, device: {args.device}')
+    # args.debug = True
+    args.study_type = ['XR_ELBOW', 'XR_FINGER', 'XR_FOREARM', 'XR_HAND', 'XR_HUMERUS', 'XR_SHOULDER', 'XR_WRIST']
 
-    os.makedirs('pic', exist_ok=True)
+    for study_type in args.study_type:
+        args.dataset_dir = os.path.join('Datasets', 'MURA-v1.1')
+        args.save_model_dir = os.path.join('trained_model', 'MURA-v1.1', study_type, 'densenet169')
+        args.log_filename = 'train_MURA-v1.1_' + study_type
+        
+        args.logger = get_logger(args.log_filename)
+        args.device = torch.device(f'cuda:{args.devices[0]}' if torch.cuda.is_available() else 'cpu')
 
-    transform = transforms.Compose([
-        transforms.Resize(args.img_size),
-        transforms.ToTensor(),
-    ])
+        args.logger.info(f'Start Traing: {study_type} dataset')
+        args.logger.info(f'Start batch size: {args.batch_size}, device: {args.device}')
 
-    args.num_classes = 7
-    data_train = ISIC2018_Dataset(type='train', transform=transform)
-    train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
+        os.makedirs('pic', exist_ok=True)
+        
+        data_transforms = {
+            'train': transforms.Compose([
+                    transforms.Resize((224, 224)),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.RandomRotation(10),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) 
+            ]),
+            'valid': transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ]),
+        }
+        
+        args.num_classes = 2
+        data_train = MURAv1_1(type='train', study_type=study_type, transform=data_transforms['train'])
+        train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
 
-    val_data = ISIC2018_Dataset(type='valid', transform=transform)
+        val_data = MURAv1_1(type='valid', study_type=study_type, transform=data_transforms['valid'])
 
-    args.train_loader = torch.utils.data.DataLoader(
-        dataset=train_data,
-        batch_size=args.batch_size,
-        shuffle=args.shuffle,
-        num_workers=8
-    )
+        args.train_loader = torch.utils.data.DataLoader(
+            dataset=train_data,
+            batch_size=args.batch_size,
+            shuffle=args.shuffle,
+            num_workers=8
+        )
 
-    args.val_loader = torch.utils.data.DataLoader(
-        dataset=val_data,
-        batch_size=args.batch_size,
-        shuffle=args.shuffle,
-        num_workers=8
-    )
-    
-    args.unlabeled_loader = torch.utils.data.DataLoader(
-        dataset=unlabeled_data,
-        batch_size=args.batch_size,
-        shuffle=args.shuffle,
-        num_workers=8
-    )
-    
-    args.pretrain_model = resnet18(num_classes=args.num_classes).to(args.device)
-    
-    # args.pueudo_label_pred_model = 'FC'
-    # args.model_fc = FC_3layer(num_classes=args.num_classes).to(args.device)
-    
-    args.model_fc = Avg_Label(num_classes=args.num_classes).to(args.device)
-    trainer.main(args)
+        args.val_loader = torch.utils.data.DataLoader(
+            dataset=val_data,
+            batch_size=args.batch_size,
+            shuffle=args.shuffle,
+            num_workers=8
+        )
+        
+        args.unlabeled_loader = torch.utils.data.DataLoader(
+            dataset=unlabeled_data,
+            batch_size=args.batch_size,
+            shuffle=args.shuffle,
+            num_workers=8
+        )
+        
+        args.model_type = 'densenet'
+        args.pretrain_model = DenseNet169_BC().to(args.device)
+        args.model_fc = Same_Label(num_classes=args.num_classes).to(args.device)
+        
+        # args.binary_cls = True
+        # args.criterion = nn.BCELoss().to(args.device)
+        # args.optimizer = torch.optim.Adam(args.pretrain_model.parameters(), 0.001)
+
+        args.criterion = nn.CrossEntropyLoss(reduction='none').to(args.device)
+        args.optimizer = torch.optim.Adam(args.pretrain_model.parameters(), lr=0.0001)
+        args.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(args.optimizer, mode='min', patience=1, verbose=True)
+        
+        trainer.main(args)

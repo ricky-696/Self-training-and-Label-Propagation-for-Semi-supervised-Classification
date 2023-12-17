@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import torch
+import torch.nn as nn
 from torchvision import transforms
 from torch.utils.data import random_split
 
@@ -17,7 +18,7 @@ if __name__ == '__main__':
 
     # debug
     # args.pretrain = False
-    args.debug = True
+    # args.debug = True
     
     args.dataset_dir = os.path.join('Datasets', 'ISIC2018')
     args.save_model_dir = os.path.join('trained_model', 'ISIC2018', 'resnet18')
@@ -63,8 +64,11 @@ if __name__ == '__main__':
     
     args.pretrain_model = resnet18(num_classes=args.num_classes).to(args.device)
     
-    args.pueudo_label_pred_model = 'FC'
-    args.model_fc = FC_3layer(num_classes=args.num_classes).to(args.device)
+    # args.pueudo_label_pred_model = 'FC'
+    # args.model_fc = FC_3layer(num_classes=args.num_classes).to(args.device)
     
-    # args.model_fc = Avg_Label(num_classes=args.num_classes).to(args.device)
+    args.model_fc = Avg_Label(num_classes=args.num_classes).to(args.device)
+    
+    args.criterion = nn.CrossEntropyLoss(reduction='none').to(args.device)
+    args.optimizer = torch.optim.Adam(args.pretrain_model.parameters(), 0.001)
     trainer.main(args)
