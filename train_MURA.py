@@ -5,7 +5,7 @@ import torch.nn as nn
 from torchvision import transforms
 from torch.utils.data import random_split
 
-from Model import Same_Label, DenseNet169_BC
+from Model import *
 from dataset import MURAv1_1
 # from DenseNet_MURA_PyTorch.densenet import densenet169
 
@@ -21,10 +21,13 @@ if __name__ == '__main__':
     # args.pretrain = False
     # args.debug = True
     args.study_type = ['XR_ELBOW', 'XR_FINGER', 'XR_FOREARM', 'XR_HAND', 'XR_HUMERUS', 'XR_SHOULDER', 'XR_WRIST']
+    
+    # args.model_type = 'resnet'
+    args.model_type = 'densenet'
 
     for study_type in args.study_type:
         args.dataset_dir = os.path.join('Datasets', 'MURA-v1.1')
-        args.save_model_dir = os.path.join('trained_model', 'MURA-v1.1', study_type, 'densenet169')
+        args.save_model_dir = os.path.join('trained_model', 'MURA-v1.1', study_type, args.model_type)
         args.log_filename = 'train_MURA-v1.1_' + study_type
         
         args.logger = get_logger(args.log_filename)
@@ -52,7 +55,9 @@ if __name__ == '__main__':
         
         args.num_classes = 2
         data_train = MURAv1_1(type='train', study_type=study_type, transform=data_transforms['train'])
-        train_data, unlabeled_data = random_split(data_train, [0.5, 0.5])
+        
+        # 1 unlabeled data for debug
+        train_data, unlabeled_data = random_split(data_train, [0.2, 0.8])
 
         val_data = MURAv1_1(type='valid', study_type=study_type, transform=data_transforms['valid'])
 
@@ -77,8 +82,11 @@ if __name__ == '__main__':
             num_workers=8
         )
         
-        args.model_type = 'densenet'
-        args.pretrain_model = DenseNet169_BC().to(args.device)
+        if args.model_type == 'resnet':
+            args.pretrain_model = resnet50(args.num_classes).to(args.device)
+        elif args.model_type == 'densenet':
+            args.pretrain_model = DenseNet169_BC().to(args.device)
+            
         args.model_fc = Same_Label(num_classes=args.num_classes).to(args.device)
         
         # args.binary_cls = True
@@ -87,6 +95,6 @@ if __name__ == '__main__':
 
         args.criterion = nn.CrossEntropyLoss(reduction='none').to(args.device)
         args.optimizer = torch.optim.Adam(args.pretrain_model.parameters(), lr=0.0001)
-        args.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(args.optimizer, mode='min', patience=1, verbose=True)
+        # args.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(args.optimizer, mode='min', patience=1, verbose=True)
         
         trainer.main(args)

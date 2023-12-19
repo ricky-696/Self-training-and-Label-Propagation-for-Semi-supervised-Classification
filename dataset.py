@@ -2,12 +2,10 @@ import os
 import glob
 import torch
 import pandas as pd
-import nibabel as nib
 
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
-from torch.utils.data import random_split
 
 """
 If You Want Custom Datset, __getitem__() need return a dict 'batch':

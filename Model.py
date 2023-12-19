@@ -167,27 +167,7 @@ class Same_Label(nn.Module):
 
 
 if __name__ == '__main__':
-    # 创建测试输入数据
-    num_classes = 7
-    input_size = [32, 14]
-
-    # 创建符合条件的例子
-    condition_true_example = torch.randn(input_size).to('cuda:1')
-    argmax_true = torch.randint(0, num_classes, (input_size[0],))
-
-    # 设置x1和x2，使得argmax_x1等于argmax_x2
-    condition_true_example[:, :num_classes] = F.one_hot(argmax_true, num_classes=num_classes).float()
-    condition_true_example[:, num_classes:] = condition_true_example[:, :num_classes]
-
-    # 创建不符合条件的例子
-    condition_false_example = torch.randn(input_size).to('cuda:1')
-    argmax_false_x1 = torch.randint(0, num_classes, (input_size[0],))
-    argmax_false_x2 = torch.randint(0, num_classes, (input_size[0],))
-
-    # 设置x1和x2，使得argmax_x1不等于argmax_x2
-    condition_false_example[:, :num_classes] = F.one_hot(argmax_false_x1, num_classes=num_classes).float()
-    condition_false_example[:, num_classes:] = F.one_hot(argmax_false_x2, num_classes=num_classes).float()
-
-    model = Same_Label(num_classes=7).to('cuda:1')
-
-    out = model(condition_true_example + condition_false_example)
+    model = DenseNet169_BC().to('cpu')
+    
+    for name, param in model.named_parameters():
+        print(name, param.requires_grad)

@@ -10,12 +10,20 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 def get_logger(log_filename='Med_SelfTraining'):
-    
     # clean the PIL's log
     logging.getLogger('PIL').setLevel(logging.WARNING)
     
     os.environ['KMP_DUPLICATE_LIB_OK']='True'
-    logger = logging.getLogger()
+    
+    # Use a root logger and create a child logger for each call to get_logger
+    root_logger = logging.getLogger()
+    logger = root_logger.getChild(log_filename)
+    
+    if logger.hasHandlers():
+        # Remove existing handlers to avoid duplicate log entries
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+    
     logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter(
         '[%(levelname)1.1s %(asctime)s %(funcName)s:%(lineno)d] %(message)s',
@@ -35,7 +43,10 @@ def get_logger(log_filename='Med_SelfTraining'):
     fh = logging.FileHandler(filename_with_timestamp)
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(formatter)
+    
+    # Disable matplotlib's font manager log
     logging.getLogger('matplotlib.font_manager').disabled = True
+    
     logger.addHandler(ch)
     logger.addHandler(fh)
     
@@ -120,33 +131,7 @@ def set_seed(seed):
         
 
 if __name__ == '__main__':
-    import subprocess
-    from dataset import MNIST_omega
-    from torchvision import transforms
     
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-    ])
-    
-    dataset =  MNIST_omega(
-        root='./mnist/',
-        transform=transform
-    )
-    
-    dataloader = torch.utils.data.DataLoader(
-        dataset=dataset,
-        batch_size=32,
-        shuffle=True,
-        num_workers=8
-    )
-    
-    log_dir = 'log/vis_pseudo_data'
-    tensorboard_process = subprocess.Popen(["tensorboard", "--logdir", log_dir])
-    
-    vis_pseudo_data_images(
-        dataloader, 
-        vis_batch_num=5, 
-        log_dir=log_dir
-    )
-    
-    tensorboard_process.terminate()
+    for i in range(3):
+        test_logger = get_logger(f'test_log{i}')
+        test_logger.info(f'Start Testing: {i}')
