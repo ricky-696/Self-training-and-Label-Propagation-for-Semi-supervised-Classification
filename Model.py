@@ -144,9 +144,10 @@ class Avg_Label(nn.Module):
     
 
 class Same_Label(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, device):
         super(Same_Label, self).__init__()
         self.num_classes = num_classes
+        self.device = device
 
     def forward(self, x):
         x1, x2 = x.split(self.num_classes, dim=1)
@@ -160,7 +161,7 @@ class Same_Label(nn.Module):
         pseudo_labels = torch.where(
             condition.unsqueeze(1),
             F.softmax((x1 + x2) / 2.0, dim=1),
-            torch.zeros((x.size(0), self.num_classes)).to('cuda:1')
+            torch.zeros((x.size(0), self.num_classes)).to(self.device)
         )
 
         return pseudo_labels
