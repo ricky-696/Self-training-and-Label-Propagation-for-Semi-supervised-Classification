@@ -50,9 +50,13 @@ class resnet50(nn.Module):
 
 
 class DenseNet169_BC(nn.Module):
-    def __init__(self, num_classes=2):
+    def __init__(self, num_classes=2, pretrain=False):
         super(DenseNet169_BC, self).__init__()
-        self.densenet = models.densenet169(weights=models.DenseNet169_Weights.DEFAULT)
+        if pretrain:
+            self.densenet = models.densenet169(weights=models.DenseNet169_Weights.DEFAULT)
+        else:
+            self.densenet = models.densenet169()
+            
         self.densenet.classifier = nn.Linear(1664, num_classes)
 
     def forward(self, x):

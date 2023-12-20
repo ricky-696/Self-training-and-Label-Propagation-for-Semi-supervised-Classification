@@ -26,7 +26,7 @@ if __name__ == '__main__':
     args.model_type = 'densenet'
 
     for study_type in args.study_type:
-        title = 'train_MURA-v1.1_20%_data_epoch_1_'
+        title = 'train_MURA-v1.1_all_data_no_pretrain'
         args.dataset_dir = os.path.join('Datasets', 'MURA-v1.1')
         args.save_model_dir = os.path.join('trained_model', title, study_type, args.model_type)
         args.log_filename = title + study_type
@@ -58,7 +58,7 @@ if __name__ == '__main__':
         data_train = MURAv1_1(type='train', study_type=study_type, transform=data_transforms['train'])
         
         # 1 unlabeled data for debug
-        train_data, unlabeled_data = random_split(data_train, [0.2, 0.8])
+        train_data, unlabeled_data = random_split(data_train, [len(data_train) - 1, 1])
 
         val_data = MURAv1_1(type='valid', study_type=study_type, transform=data_transforms['valid'])
 
@@ -86,7 +86,7 @@ if __name__ == '__main__':
         if args.model_type == 'resnet':
             args.pretrain_model = resnet50(args.num_classes).to(args.device)
         elif args.model_type == 'densenet':
-            args.pretrain_model = DenseNet169_BC().to(args.device)
+            args.pretrain_model = DenseNet169_BC(pretrain=False).to(args.device)
             
         args.model_fc = Same_Label(num_classes=args.num_classes, device=args.device).to(args.device)
         

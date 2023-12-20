@@ -5,7 +5,7 @@ def arg_parse():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--debug', type=bool, default=False, help='open/close debug mode')
-    parser.add_argument('--devices', type=str, default='7', help='gpu number')
+    parser.add_argument('--devices', type=str, default='5', help='gpu number')
     
     # dir
     parser.add_argument('--dataset_dir', type=str, default='Datasets/mnist', help='dataset_dir')
@@ -23,7 +23,7 @@ def arg_parse():
     parser.add_argument('--pueudo_label_pred_model', type=str, default='avg', help='pueudo_label_pred_model type: FC or avg')
     parser.add_argument('--model_type', type=str, default='resnet', help='backbone model_type')
     parser.add_argument('--batch_size', type=int, default=32, help='batch_size')
-    parser.add_argument('--teacher_epochs', type=int, default=1, help='epochs of finetune pretrain model')
+    parser.add_argument('--teacher_epochs', type=int, default=10, help='epochs of finetune pretrain model')
     parser.add_argument('--student_epochs', type=int, default=5, help='epochs of training student')
     parser.add_argument('--FC_epochs', type=int, default=200, help='epochs of training student')
     parser.add_argument('--max_self_training_iteration', type=int, default=10, help='max_self_training_iteration')

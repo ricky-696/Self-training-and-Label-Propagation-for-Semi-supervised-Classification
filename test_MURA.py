@@ -42,15 +42,15 @@ if __name__ == '__main__':
     assert BATCH_SIZE == 1, "batch_size need to be 1, can't be more"
 
     data_cat = ['valid']
-    model_type = 'resnet'
+    model_type = 'densenet'
     data_dir = os.path.join('Datasets', 'MURA-v1.1')
-    device = torch.device(f'cuda:1' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f'cuda:5' if torch.cuda.is_available() else 'cpu')
     study_types = ['XR_ELBOW', 'XR_FINGER', 'XR_FOREARM', 'XR_HAND', 'XR_HUMERUS', 'XR_SHOULDER', 'XR_WRIST']
-    logger = get_logger('Test_MURA')
+    logger = get_logger('Test_MURA_all_data_epoch_1_')
 
     kappa_scores = []
     for study_type in study_types:
-        model = torch.load(os.path.join('trained_model', 'MURA-v1.1', study_type, model_type, 'student_best.pt')).to(device)
+        model = torch.load(os.path.join('trained_model', 'train_MURA-v1.1_all_data_epoch_1_', study_type, model_type, 'student_best.pt')).to(device)
         study_data = get_study_level_data(data_dir, study_type=study_type, data_cat=data_cat)
         dataloaders = get_dataloaders(study_data, batch_size=BATCH_SIZE, data_cat=data_cat)
         
