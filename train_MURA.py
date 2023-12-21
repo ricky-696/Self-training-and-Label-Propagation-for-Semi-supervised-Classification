@@ -26,7 +26,7 @@ if __name__ == '__main__':
     args.model_type = 'densenet'
 
     for study_type in args.study_type:
-        title = 'train_MURA-v1.1_all_data_no_pretrain'
+        title = 'train_MURA-v1.1_1%_data_epoch_10_'
         args.dataset_dir = os.path.join('Datasets', 'MURA-v1.1')
         args.save_model_dir = os.path.join('trained_model', title, study_type, args.model_type)
         args.log_filename = title + study_type
@@ -58,7 +58,10 @@ if __name__ == '__main__':
         data_train = MURAv1_1(type='train', study_type=study_type, transform=data_transforms['train'])
         
         # 1 unlabeled data for debug
-        train_data, unlabeled_data = random_split(data_train, [len(data_train) - 1, 1])
+        if study_type == 'XR_HUMERUS':
+            train_data, unlabeled_data = random_split(data_train, [0.01, 0.99])
+        else:
+            train_data, unlabeled_data = random_split(data_train, [0.01, 0.99])
 
         val_data = MURAv1_1(type='valid', study_type=study_type, transform=data_transforms['valid'])
 
