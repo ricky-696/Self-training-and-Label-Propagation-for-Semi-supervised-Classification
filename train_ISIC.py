@@ -67,7 +67,7 @@ if __name__ == '__main__':
     # args.pueudo_label_pred_model = 'FC'
     # args.model_fc = FC_3layer(num_classes=args.num_classes).to(args.device)
     
-    args.model_fc = Avg_Label(num_classes=args.num_classes).to(args.device)
+    args.model_fc = Same_Label(num_classes=args.num_classes).to(args.device)
     
     args.criterion = nn.CrossEntropyLoss(reduction='none').to(args.device)
     args.optimizer = torch.optim.Adam(args.pretrain_model.parameters(), 0.001)
