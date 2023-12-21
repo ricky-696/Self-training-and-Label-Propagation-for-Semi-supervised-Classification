@@ -57,10 +57,11 @@ def get_feature_and_label_propagation(args, teacher_model, model_type, labeled_l
     )
 
     # used mmap_mode to avoid OOM
-    args.logger.info('saving "labeled_data_features.npy')
-    np.save(os.path.join(features_data_path, 'labeled_data_features.npy'), labeled_data_features)
+    label_features = f'labeled_data_features_{args.log_filename}.npy'
+    args.logger.info(f'saving {label_features}')
+    np.save(os.path.join(features_data_path, label_features), labeled_data_features)
     del labeled_data_features
-    labeled_data_features = np.load(os.path.join(features_data_path, 'labeled_data_features.npy'), mmap_mode='r')
+    labeled_data_features = np.load(os.path.join(features_data_path, label_features), mmap_mode='r')
 
     args.logger.info('unlabeled data: predict label and get feature')
     unlabeled_data_features, unlabeled_data_gts, teacher_Pseudo_label, unlabeled_idx, unlabeled_data_acc = predict(
@@ -71,10 +72,11 @@ def get_feature_and_label_propagation(args, teacher_model, model_type, labeled_l
     )
 
     # used mmap_mode to avoid OOM
-    args.logger.info('saving "unlabeled_data_features.npy')
-    np.save(os.path.join(features_data_path, 'unlabeled_data_features.npy'), unlabeled_data_features)
+    unlabel_features = f'unlabeled_data_features_{args.log_filename}.npy'
+    args.logger.info(f'saving {unlabel_features}')
+    np.save(os.path.join(features_data_path, unlabel_features), unlabeled_data_features)
     del unlabeled_data_features
-    unlabeled_data_features = np.load(os.path.join(features_data_path, 'unlabeled_data_features.npy'), mmap_mode='r')
+    unlabeled_data_features = np.load(os.path.join(features_data_path, unlabel_features), mmap_mode='r')
     
     ext_feature = np.concatenate([labeled_data_features, unlabeled_data_features])
     all_label = np.concatenate([labeled_data_gts, unlabeled_data_gts])
@@ -99,8 +101,6 @@ def get_feature_and_label_propagation(args, teacher_model, model_type, labeled_l
             LP_labels=LP_pseudo_labels,
             batch_size=5
         )
-    
-    np.save(os.path.join(features_data_path, 'Label_Propagation_features.npy'), LP_pseudo_labels)
     
     del ext_feature, all_label
 
