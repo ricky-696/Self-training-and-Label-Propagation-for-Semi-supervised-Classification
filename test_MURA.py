@@ -34,7 +34,7 @@ def pred_MURA(model, dataloader, logger):
         logger.info(f'Kappa Score: {kappa_score}')
         logger.info(f'Accuracy: {accuracy * 100:.2f}%')
         
-    return kappa_score
+    return accuracy, kappa_score
             
 
 if __name__ == '__main__':
@@ -46,19 +46,25 @@ if __name__ == '__main__':
     data_dir = os.path.join('Datasets', 'MURA-v1.1')
     device = torch.device(f'cuda:6' if torch.cuda.is_available() else 'cpu')
     study_types = ['XR_ELBOW', 'XR_FINGER', 'XR_FOREARM', 'XR_HAND', 'XR_HUMERUS', 'XR_SHOULDER', 'XR_WRIST']
-    logger = get_logger('Test_MURA_train_MURA-v1.1_20%_data_epoch_0')
+    title = '10%_data_'
+    logger = get_logger(f'Test_MURA_{title}')
 
-    kappa_scores = []
+    accs, kappa_scores = [], []
     for study_type in study_types:
-        model = torch.load(os.path.join('trained_model', 'train_MURA-v1.1_20%_data_epoch_0', study_type, model_type, 'student_best.pt')).to(device)
+        model = torch.load(os.path.join('trained_model', f'train_MURA-v1.1_{title}', study_type, model_type, 'student_best.pt')).to(device)
         study_data = get_study_level_data(data_dir, study_type=study_type, data_cat=data_cat)
         dataloaders = get_dataloaders(study_data, batch_size=BATCH_SIZE, data_cat=data_cat)
         
         logger.info(f'Start predict {study_type}')
-        kappa_scores.append(pred_MURA(model, dataloaders['valid'], logger))
+        acc, kappa = pred_MURA(model, dataloaders['valid'], logger)
+
+        accs.append(acc)
+        kappa_scores.append(kappa)
         
     avg_kappa = np.mean(kappa_scores)
+    avg_acc = np.mean(accs)
     logger.info(f'Avg Kappa Score: {avg_kappa}')
+    logger.info(f'Avg Accuarcy: {avg_acc * 100:.2f}%')
         
     
 
