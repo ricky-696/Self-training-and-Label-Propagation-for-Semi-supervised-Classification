@@ -207,13 +207,16 @@ class MURAv1_1(Dataset):
 
 
 if __name__ == '__main__':
-    train_data = MURAv1_1(
-        type='train',
-        all_parts=True
-    )
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Resize((224, 224)),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+
+    data_train = ISIC2018_Dataset(type='train', transform=transform)
 
     test = 1
-    for batch in tqdm(train_data):
+    for batch in tqdm(data_train):
         test += 1
     
     print(test)

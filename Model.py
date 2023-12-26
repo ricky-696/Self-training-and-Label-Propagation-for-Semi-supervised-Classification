@@ -4,6 +4,20 @@ import torch.nn as nn
 from torchvision import models
 from torch.nn import functional as F
 
+
+class vgg16(nn.Module):
+    def __init__(self, num_classes):
+        super(vgg16, self).__init__()
+        self.model = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
+        in_features = self.model.classifier[6].in_features
+        self.model.classifier[6] = nn.Linear(in_features, num_classes)
+
+    def forward(self, x):
+        x = self.model(x)
+
+        return x
+
+
 class gray_resnet18(nn.Module):
     def __init__(self, num_classes):
         super(gray_resnet18, self).__init__()
@@ -186,7 +200,7 @@ class Same_Label(nn.Module):
 
 
 if __name__ == '__main__':
-    model = DenseNet121().to('cpu')
+    model = vgg16(num_classes=7).to('cpu')
     
     for name, param in model.named_parameters():
         print(name, param.requires_grad)

@@ -140,6 +140,8 @@ def predict(args, model, model_type, test_loader):
             handle = model.model.fc.register_forward_pre_hook(hook)
         elif model_type == 'densenet':
             handle = model.densenet.classifier.register_forward_pre_hook(hook)
+        elif model_type == 'vgg':
+            handle = model.model.classifier[-1].register_forward_pre_hook(hook)
             
         for batch in pbar:
             
