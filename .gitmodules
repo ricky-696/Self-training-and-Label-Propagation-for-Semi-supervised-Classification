@@ -4,3 +4,6 @@
 [submodule "Kaggle_PANDA_1st_place_solution"]
 	path = Kaggle_PANDA_1st_place_solution
 	url = https://github.com/ricky-696/Kaggle-PANDA-1st-place-solution
+[submodule "SRC_MT"]
+	path = SRC_MT
+	url = https://github.com/ricky-696/SRC_MT.git
