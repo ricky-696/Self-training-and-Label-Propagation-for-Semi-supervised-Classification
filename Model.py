@@ -61,6 +61,20 @@ class DenseNet169_BC(nn.Module):
 
     def forward(self, x):
         return self.densenet(x)
+    
+    
+class DenseNet121(nn.Module):
+    def __init__(self, num_classes=2, pretrain=False):
+        super(DenseNet121, self).__init__()
+        if pretrain:
+            self.densenet = models.densenet121(weights=models.DenseNet121_Weights.DEFAULT)
+        else:
+            self.densenet = models.densenet121()
+            
+        self.densenet.classifier = nn.Linear(1024, num_classes)
+
+    def forward(self, x):
+        return self.densenet(x)
 
 
 class FC_3layer(nn.Module):
@@ -172,7 +186,7 @@ class Same_Label(nn.Module):
 
 
 if __name__ == '__main__':
-    model = DenseNet169_BC().to('cpu')
+    model = DenseNet121().to('cpu')
     
     for name, param in model.named_parameters():
         print(name, param.requires_grad)

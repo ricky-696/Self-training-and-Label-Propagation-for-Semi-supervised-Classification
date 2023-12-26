@@ -5,7 +5,7 @@ def arg_parse():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--debug', type=bool, default=False, help='open/close debug mode')
-    parser.add_argument('--devices', type=str, default='5', help='gpu number')
+    parser.add_argument('--devices', type=str, default='0', help='gpu number')
     
     # dir
     parser.add_argument('--dataset_dir', type=str, default='Datasets/mnist', help='dataset_dir')
