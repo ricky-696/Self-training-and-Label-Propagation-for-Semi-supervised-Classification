@@ -2,8 +2,8 @@ import os
 import glob
 import torch
 import pandas as pd
-
 from PIL import Image
+from tqdm import tqdm
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 
@@ -154,6 +154,7 @@ class MURAv1_1(Dataset):
     def __init__(
             self, 
             type='train', study_type='XR_ELBOW', data_dir=os.path.join('Datasets', 'MURA-v1.1'),
+            all_parts=False,
             transform=transforms.Compose([
                 transforms.Resize((224, 224)),
                 transforms.ToTensor(),
@@ -161,22 +162,33 @@ class MURAv1_1(Dataset):
         ):
 
         label_id = {'negative': 0, 'positive': 1}
-        self.data_dir = os.path.join(data_dir, type, study_type)  
         self.transform = transform
 
         self.data = []
-        for p_id in os.listdir(self.data_dir):
-            p_path = glob.glob(os.path.join(self.data_dir, p_id, '*'))
-            label = label_id[p_path[0].split('/')[-1].split('_')[-1]]
-            
-            for img_path in glob.glob(os.path.join(p_path[0], '*.png')):
+        if all_parts:
+            df = pd.read_csv(os.path.join(data_dir, f'{type}_image_paths.csv'))
+            data_path = df.iloc[:, 0]
+            for img_path in data_path:
                 data_entry = {
-                    'p_id': p_id,
-                    'label': label,
-                    'img_path': img_path,
+                    'label': label_id[img_path.split('/')[-2].split('_')[-1]],
+                    'img_path': os.path.join(data_dir, img_path[len("MURA-v1.1/"):]),
                 }
-                
+                    
                 self.data.append(data_entry)
+        else:
+            self.data_dir = os.path.join(data_dir, type, study_type)
+            for p_id in os.listdir(self.data_dir):
+                p_path = glob.glob(os.path.join(self.data_dir, p_id, '*'))
+                label = label_id[p_path[0].split('/')[-1].split('_')[-1]]
+                
+                for img_path in glob.glob(os.path.join(p_path[0], '*.png')):
+                    data_entry = {
+                        'p_id': p_id,
+                        'label': label,
+                        'img_path': img_path,
+                    }
+                    
+                    self.data.append(data_entry)
 
         self.omega = torch.tensor([1.] * len(self.data), dtype=torch.float32)
 
@@ -195,8 +207,14 @@ class MURAv1_1(Dataset):
 
 
 if __name__ == '__main__':
-    train_data = MURAv1_1(type='train')
+    train_data = MURAv1_1(
+        type='train',
+        all_parts=True
+    )
 
-    for batch in train_data:
-        print(batch)
+    test = 1
+    for batch in tqdm(train_data):
+        test += 1
+    
+    print(test)
 
