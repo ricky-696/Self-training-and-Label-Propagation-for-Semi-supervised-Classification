@@ -5,7 +5,7 @@ def arg_parse():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--debug', type=bool, default=False, help='open/close debug mode')
-    parser.add_argument('--devices', type=str, default='0', help='gpu number')
+    parser.add_argument('--devices', type=str, default='1', help='gpu number')
     
     # dir
     parser.add_argument('--dataset_dir', type=str, default='Datasets/mnist', help='dataset_dir')
@@ -28,6 +28,9 @@ def arg_parse():
     parser.add_argument('--FC_epochs', type=int, default=200, help='epochs of training student')
     parser.add_argument('--max_self_training_iteration', type=int, default=10, help='max_self_training_iteration')
     parser.add_argument('--img_size', type=tuple, default=(256, 256), help='input img_size')
+
+    # test
+    
     
     opt = parser.parse_args()
     return opt

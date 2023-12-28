@@ -5,8 +5,9 @@ import torch.nn as nn
 from torchvision import transforms
 from torch.utils.data import random_split
 
-from Model import resnet18, DenseNet121, Same_Label, vgg16
-from dataset import ISIC2018_Dataset
+from Model import resnet18, Same_Label, vgg16
+from SRC_MT.code.networks.models import DenseNet121
+from dataset import ISIC2018_Dataset, ISIC2018_SRC
 
 import trainer
 from opt import arg_parse
@@ -15,6 +16,7 @@ from utils import get_logger
 
 if __name__ == '__main__':
     args = arg_parse()
+    torch.hub.set_dir('trained_model')
 
     # debug
     # args.pretrain = False
@@ -59,10 +61,9 @@ if __name__ == '__main__':
     # val_data = ISIC2018_Dataset(type='valid', transform=args.data_transforms['test'])
 
     # exp setting on https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=9095275&tag=1
-    data_train = ISIC2018_Dataset(type='train', transform=args.data_transforms['train'])
-    train_data, val_data, test_data = random_split(data_train, [0.7, 0.1, 0.2])
-    val_data.transform = args.data_transforms['test']
-    test_data.transform = args.data_transforms['test']
+    train_data = ISIC2018_SRC(type='training', transform=args.data_transforms['train'])
+    val_data = ISIC2018_SRC(type='training', transform=args.data_transforms['test'])
+    test_data = ISIC2018_SRC(type='training', transform=args.data_transforms['test'])
     labeled_data, unlabeled_data = random_split(train_data, [0.2, 0.8])
 
     args.train_loader = torch.utils.data.DataLoader(

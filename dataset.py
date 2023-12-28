@@ -150,6 +150,54 @@ class ISIC2018_Dataset(Dataset):
         return len(self.data)
 
 
+class ISIC2018_SRC(Dataset):
+    def __init__(
+            self, 
+            type='training', 
+            data_dir=os.path.join('Datasets', 'ISIC2018'),
+            csv_dir=os.path.join('SRC_MT', 'data', 'skin'),
+            transform=transforms.ToTensor()
+        ):
+
+        assert type in ['training', 'validation', 'testing'], f"Invalid type: {type}. Expected one of ['training', 'validation', 'testing']"
+
+        self.data = []
+        self.target = []
+        self.transform = transform
+
+        df = pd.read_csv(os.path.join(csv_dir, f'{type}.csv'))
+
+        for index, row in df.iterrows():
+            image_name = row['image']
+            image_path = os.path.join(data_dir, 'ISIC2018_Task3_Training_Input', f"{image_name}.jpg")
+            self.data.append(image_path)
+
+            # Assuming the target labels are in columns 'MEL', 'NV', 'BCC', 'AKIEC', 'BKL', 'DF', 'VASC'
+            # Modify this according to your actual CSV structure
+            labels = row[['MEL', 'NV', 'BCC', 'AKIEC', 'BKL', 'DF', 'VASC']].values.tolist()
+            target = labels.index(1)
+            self.target.append(target)
+
+        self.omega = torch.tensor([1.] * len(self.data), dtype=torch.float32)
+
+    def __getitem__(self, index):
+        img = Image.open(self.data[index]).convert('RGB')
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        batch = {}
+        batch['img'] = img
+        batch['label'] = torch.tensor(self.target[index])
+        batch['omega'] = self.omega[index]
+        batch['idx'] = torch.tensor(index)
+
+        return batch
+
+    def __len__(self):
+        return len(self.data)
+
+
 class MURAv1_1(Dataset):
     def __init__(
             self, 
@@ -208,12 +256,12 @@ class MURAv1_1(Dataset):
 
 if __name__ == '__main__':
     transform = transforms.Compose([
-        transforms.ToTensor(),
         transforms.Resize((224, 224)),
+        transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 
-    data_train = ISIC2018_Dataset(type='train', transform=transform)
+    data_train = ISIC2018_SRC(type='training', transform=transform)
 
     test = 1
     for batch in tqdm(data_train):

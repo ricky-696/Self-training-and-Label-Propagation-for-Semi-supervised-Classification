@@ -81,14 +81,14 @@ class DenseNet121(nn.Module):
     def __init__(self, num_classes=2, pretrain=False):
         super(DenseNet121, self).__init__()
         if pretrain:
-            self.densenet = models.densenet121(weights=models.DenseNet121_Weights.DEFAULT)
+            self.densenet121 = models.densenet121(weights=models.DenseNet121_Weights.DEFAULT)
         else:
-            self.densenet = models.densenet121()
+            self.densenet121 = models.densenet121()
             
-        self.densenet.classifier = nn.Linear(1024, num_classes)
+        self.densenet121.classifier = nn.Linear(1024, num_classes)
 
     def forward(self, x):
-        return self.densenet(x)
+        return self.densenet121(x)
 
 
 class FC_3layer(nn.Module):
