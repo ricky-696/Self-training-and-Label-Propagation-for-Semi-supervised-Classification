@@ -9,6 +9,52 @@ ex:
 python train_ISIC.py --dataset_dir datasets/ISIC2018 
 ```
 
+如果需要訓練自己的資料集，必須再寫一個`train_xxx.py`，格式大概如下:
+```python
+from Model import resnet18, Same_Label, vgg16
+from dataset import ISIC2018_Dataset, ISIC2018_SRC
+
+import trainer
+from opt import arg_parse
+
+
+if __name__ == '__main__':
+    args = arg_parse()
+    args.data_transforms = {
+        ...
+    }
+
+    args.num_classes = 7
+    train_data = ISIC2018_SRC(type='training', transform=args.data_transforms['train'])
+    val_data = ISIC2018_SRC(type='training', transform=args.data_transforms['test'])
+    test_data = ISIC2018_SRC(type='training', transform=args.data_transforms['test'])
+    labeled_data, unlabeled_data = random_split(train_data, [0.2, 0.8])
+
+    args.train_loader = torch.utils.data.DataLoader(
+        dataset=labeled_data,
+        batch_size=args.batch_size,
+        shuffle=args.shuffle,
+        num_workers=8
+    )
+    args.val_loader = torch.utils.data.DataLoader(
+        ...
+    )
+    args.unlabeled_loader = torch.utils.data.DataLoader(
+        ...
+    )
+    
+    if args.model_type == 'resnet':
+        args.pretrain_model = resnet18(num_classes=args.num_classes).to(args.device)
+    elif args.model_type == 'densenet':
+        ...
+
+    args.model_fc = Same_Label(num_classes=args.num_classes, device=args.device).to(args.device)
+    
+    args.criterion = nn.CrossEntropyLoss(reduction='none').to(args.device)
+    args.optimizer = torch.optim.Adam(args.pretrain_model.parameters(), 0.001)
+    trainer.main(args)
+```
+
 ## Dataset
 目前只支援MNIST, ISIC, MURA，需要train自己的dataset時，getitem需要回傳的資訊如下：
 ```python
